@@ -112,6 +112,21 @@ impl ChatWidget {
             return;
         }
 
+        const REVIEW_ESC_STEER_UNAVAILABLE_MESSAGE: &str = "Steer messages aren't supported during /review. Press Ctrl+C now to cancel the review.";
+
+        if matches!(key_event.code, KeyCode::Esc)
+            && matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+            && self.review.is_review_mode
+            && (!self.input_queue.pending_steers.is_empty()
+                || !self.input_queue.rejected_steers_queue.is_empty())
+            && self.bottom_pane.is_task_running()
+            && self.bottom_pane.no_modal_or_popup_active()
+            && !self.should_handle_vim_insert_escape(key_event)
+        {
+            self.add_warning_message(REVIEW_ESC_STEER_UNAVAILABLE_MESSAGE.to_string());
+            return;
+        }
+
         if matches!(key_event.code, KeyCode::Esc)
             && matches!(key_event.kind, KeyEventKind::Press | KeyEventKind::Repeat)
             && !self.input_queue.pending_steers.is_empty()
