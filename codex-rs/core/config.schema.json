@@ -2653,8 +2653,10 @@
               "half_page_up": null,
               "jump_bottom": null,
               "jump_top": null,
+              "next_user_prompt": null,
               "page_down": null,
               "page_up": null,
+              "previous_user_prompt": null,
               "scroll_down": null,
               "scroll_up": null
             },
@@ -3312,8 +3314,10 @@
             "half_page_up": null,
             "jump_bottom": null,
             "jump_top": null,
+            "next_user_prompt": null,
             "page_down": null,
             "page_up": null,
+            "previous_user_prompt": null,
             "scroll_down": null,
             "scroll_up": null
           }
@@ -3512,6 +3516,14 @@
           ],
           "description": "Jump to the beginning."
         },
+        "next_user_prompt": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Jump to the next user prompt in the transcript overlay."
+        },
         "page_down": {
           "allOf": [
             {
@@ -3527,6 +3539,14 @@
             }
           ],
           "description": "Scroll up by one page."
+        },
+        "previous_user_prompt": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Jump to the previous user prompt in the transcript overlay."
         },
         "scroll_down": {
           "allOf": [
