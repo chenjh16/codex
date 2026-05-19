@@ -2653,12 +2653,15 @@
               "half_page_up": null,
               "jump_bottom": null,
               "jump_top": null,
+              "next_search_match": null,
               "next_user_prompt": null,
               "page_down": null,
               "page_up": null,
+              "previous_search_match": null,
               "previous_user_prompt": null,
               "scroll_down": null,
-              "scroll_up": null
+              "scroll_up": null,
+              "start_search": null
             },
             "vim_normal": {
               "append_after_cursor": null,
@@ -3314,12 +3317,15 @@
             "half_page_up": null,
             "jump_bottom": null,
             "jump_top": null,
+            "next_search_match": null,
             "next_user_prompt": null,
             "page_down": null,
             "page_up": null,
+            "previous_search_match": null,
             "previous_user_prompt": null,
             "scroll_down": null,
-            "scroll_up": null
+            "scroll_up": null,
+            "start_search": null
           }
         },
         "vim_normal": {
@@ -3516,13 +3522,21 @@
           ],
           "description": "Jump to the beginning."
         },
+        "next_search_match": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Move to the next transcript search match."
+        },
         "next_user_prompt": {
           "allOf": [
             {
               "$ref": "#/definitions/KeybindingsSpec"
             }
           ],
-          "description": "Jump to the next user prompt in the transcript overlay."
+          "description": "Move to the next user prompt in transcript search mode."
         },
         "page_down": {
           "allOf": [
@@ -3540,13 +3554,21 @@
           ],
           "description": "Scroll up by one page."
         },
+        "previous_search_match": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Move to the previous transcript search match."
+        },
         "previous_user_prompt": {
           "allOf": [
             {
               "$ref": "#/definitions/KeybindingsSpec"
             }
           ],
-          "description": "Jump to the previous user prompt in the transcript overlay."
+          "description": "Move to the previous user prompt in transcript search mode."
         },
         "scroll_down": {
           "allOf": [
@@ -3563,6 +3585,14 @@
             }
           ],
           "description": "Scroll up by one row."
+        },
+        "start_search": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/KeybindingsSpec"
+            }
+          ],
+          "description": "Start transcript search."
         }
       },
       "type": "object"
