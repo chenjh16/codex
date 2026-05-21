@@ -4353,6 +4353,70 @@ fn thread_closed_notification(thread_id: ThreadId) -> ServerNotification {
     })
 }
 
+#[tokio::test]
+async fn tab_accepts_next_prompt_suggestion_without_submitting() {
+    let (mut app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
+    app.chat_widget
+        .set_next_prompt_suggestion(Some("run the tests".to_string()));
+    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+
+    assert!(app.next_prompt_suggestion_key_should_accept(tab));
+    assert!(app.accept_next_prompt_suggestion());
+
+    assert_eq!(
+        app.chat_widget.composer_text_with_pending(),
+        "run the tests"
+    );
+    assert!(
+        op_rx.try_recv().is_err(),
+        "Tab acceptance should not submit"
+    );
+}
+
+#[tokio::test]
+async fn visible_next_prompt_suggestion_returns_after_draft_is_cleared() {
+    let (mut app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
+    app.chat_widget
+        .set_next_prompt_suggestion(Some("run the tests".to_string()));
+    app.chat_widget.apply_external_edit("x".to_string());
+    assert_eq!(app.chat_widget.composer_text_with_pending(), "x");
+    assert_eq!(
+        app.chat_widget.next_prompt_suggestion(),
+        Some("run the tests")
+    );
+
+    app.chat_widget.apply_external_edit(String::new());
+    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+
+    assert!(app.next_prompt_suggestion_key_should_accept(tab));
+    assert!(app.accept_next_prompt_suggestion());
+    assert_eq!(
+        app.chat_widget.composer_text_with_pending(),
+        "run the tests"
+    );
+    assert!(
+        op_rx.try_recv().is_err(),
+        "Tab acceptance should not submit"
+    );
+}
+
+#[tokio::test]
+async fn thread_rollback_clears_visible_next_prompt_suggestion() {
+    let mut app = make_test_app().await;
+    app.chat_widget
+        .set_next_prompt_suggestion(Some("run the tests".to_string()));
+    app.transcript_cells = vec![Arc::new(UserHistoryCell {
+        message: "old message".to_string(),
+        text_elements: Vec::new(),
+        local_image_paths: Vec::new(),
+        remote_image_urls: Vec::new(),
+    }) as Arc<dyn HistoryCell>];
+
+    assert!(app.apply_non_pending_thread_rollback(/*num_turns*/ 1));
+
+    assert_eq!(app.chat_widget.next_prompt_suggestion(), None);
+}
+
 fn token_usage_notification(
     thread_id: ThreadId,
     turn_id: &str,

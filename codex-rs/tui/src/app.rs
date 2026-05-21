@@ -205,6 +205,7 @@ mod event_dispatch;
 mod history_ui;
 mod input;
 mod loaded_threads;
+mod next_prompt_suggestion;
 mod pending_interactive_replay;
 mod pets;
 mod platform_actions;
