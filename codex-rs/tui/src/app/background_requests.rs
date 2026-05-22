@@ -25,6 +25,10 @@ use crate::hooks_rpc::write_hook_trust;
 use crate::hooks_rpc::write_hook_trusts;
 use codex_utils_absolute_path::AbsolutePathBuf;
 
+/// Requests one best-effort next-prompt suggestion from app-server.
+///
+/// The caller owns cancellation and stale-result suppression. This helper only
+/// performs the typed RPC and returns the already-filtered optional text.
 pub(super) async fn fetch_next_prompt_suggestion(
     request_handle: AppServerRequestHandle,
     thread_id: ThreadId,

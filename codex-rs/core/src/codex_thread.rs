@@ -141,6 +141,11 @@ impl CodexThread {
         self.codex.shutdown_and_wait().await
     }
 
+    /// Predicts the next prompt for the loaded thread without advancing it.
+    ///
+    /// This is the thread-level entry point for clients that already own a live
+    /// `CodexThread` and need a best-effort composer suggestion. `Ok(None)` is the
+    /// normal result when the thread is not at a stable suggestion boundary.
     pub async fn suggest_next_prompt(&self) -> CodexResult<Option<String>> {
         crate::next_prompt_suggestion::suggest_next_prompt(self.codex.session.as_ref()).await
     }

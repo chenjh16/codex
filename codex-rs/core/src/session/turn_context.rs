@@ -800,6 +800,13 @@ impl Session {
             .await
     }
 
+    /// Builds an ephemeral turn context without turn-start side effects.
+    ///
+    /// This is for hidden read-only work such as next-prompt prediction that
+    /// needs the current model/provider/cwd configuration but must not load skills,
+    /// mutate MCP permission state, enrich git context, or otherwise behave like a
+    /// user-submitted turn. Callers that need normal turn setup should keep using
+    /// `new_default_turn*` instead.
     pub(crate) async fn new_lightweight_turn(&self) -> Arc<TurnContext> {
         let session_configuration = {
             let state = self.state.lock().await;

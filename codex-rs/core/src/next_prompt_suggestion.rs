@@ -1,4 +1,15 @@
-//! Lightweight hidden sampling for predicted next prompts.
+//! Samples a hidden next-prompt prediction from an already-loaded session.
+//!
+//! This module owns the model-facing half of next-prompt suggestions. It reuses
+//! the visible thread history, appends one synthetic user instruction, samples a
+//! short assistant reply, and filters the reply into text that is safe to show as
+//! composer ghost text. It intentionally does not create a child thread, expose
+//! tools, mutate transcript state, or decide whether the TUI should render the
+//! result.
+//!
+//! Suggestions are best-effort. The caller should treat `Ok(None)` as an
+//! expected silent outcome for early conversations, active turns, incomplete
+//! tool flow, model silence, or filtered output.
 
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
@@ -36,6 +47,13 @@ Format: 2-12 words, match the user's style including capitalization, verbosity a
 
 Reply with ONLY the suggestion, no quotes or explanation."#;
 
+/// Predicts the user's likely next prompt without mutating the session.
+///
+/// The sample uses the prompt-visible history from `sess` plus one synthetic
+/// suggestion instruction. Active turns and histories with unmatched tool call
+/// pairs are suppressed before sampling because those states do not represent a
+/// stable completed conversation boundary. Returning `Ok(None)` means there is
+/// no suggestion worth showing, not that the request failed.
 pub(crate) async fn suggest_next_prompt(sess: &Session) -> CodexResult<Option<String>> {
     if sess.active_turn.lock().await.is_some() {
         tracing::debug!("next prompt suggestion skipped while a turn is active");
@@ -143,6 +161,12 @@ fn assistant_output_text(item: &ResponseItem) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+/// Reports whether prompt-visible tool calls are missing their corresponding outputs.
+///
+/// Resume can expose a transcript while a prior tool flow is still incomplete.
+/// Sampling that history would either produce malformed input or predict from a
+/// boundary the user has not actually seen completed yet, so those sessions stay
+/// silent until the call/output sets match again.
 fn has_unpaired_tool_flow(items: &[ResponseItem]) -> bool {
     let mut function_calls = HashSet::new();
     let mut function_outputs = HashSet::new();
@@ -202,6 +226,10 @@ fn has_unpaired_tool_flow(items: &[ResponseItem]) -> bool {
         || tool_search_calls != tool_search_outputs
 }
 
+/// Selects the fastest supported profile for an ephemeral suggestion sample.
+///
+/// This only adjusts the cloned lightweight turn context. It does not change the
+/// parent thread's configured model, reasoning effort, or service tier.
 fn prefer_fast_suggestion_profile(turn_context: &mut std::sync::Arc<crate::TurnContext>) {
     let Some(turn_context) = std::sync::Arc::get_mut(turn_context) else {
         return;
@@ -242,6 +270,11 @@ fn preset_supports_effort(preset: &ModelPreset, effort: ReasoningEffort) -> bool
         .any(|supported| supported.effort == effort)
 }
 
+/// Converts raw model text into a single composer-safe prompt candidate.
+///
+/// The model is allowed to stay silent. Formatting, meta labels, evaluative
+/// replies, assistant-voice phrasing, and sentence-like outputs are rejected so
+/// the UI only receives concise text the user could plausibly type verbatim.
 fn filter_next_prompt_suggestion(raw: &str) -> Option<String> {
     let suggestion = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if suggestion.is_empty()

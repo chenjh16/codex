@@ -3823,8 +3823,10 @@
       "type": "string"
     },
     "ThreadSuggestNextPromptParams": {
+      "description": "Requests a best-effort predicted next prompt for one loaded thread.\n\nThis is an internal interactive-client helper. The request does not advance the thread or persist a new item; it asks the server to sample from the thread's current prompt-visible history.",
       "properties": {
         "threadId": {
+          "description": "Thread whose current completed history should be used for prediction.",
           "type": "string"
         }
       },

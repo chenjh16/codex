@@ -114,6 +114,11 @@ impl TurnRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    /// Handles the internal next-prompt RPC without mutating thread state.
+    ///
+    /// The loaded thread owns sampling and filtering. This processor only maps
+    /// the typed RPC boundary onto that thread API and converts unexpected core
+    /// errors into the app-server error channel.
     pub(crate) async fn thread_suggest_next_prompt(
         &self,
         params: ThreadSuggestNextPromptParams,

@@ -15785,8 +15785,10 @@
     },
     "ThreadSuggestNextPromptParams": {
       "$schema": "http://json-schema.org/draft-07/schema#",
+      "description": "Requests a best-effort predicted next prompt for one loaded thread.\n\nThis is an internal interactive-client helper. The request does not advance the thread or persist a new item; it asks the server to sample from the thread's current prompt-visible history.",
       "properties": {
         "threadId": {
+          "description": "Thread whose current completed history should be used for prediction.",
           "type": "string"
         }
       },
@@ -15798,8 +15800,10 @@
     },
     "ThreadSuggestNextPromptResponse": {
       "$schema": "http://json-schema.org/draft-07/schema#",
+      "description": "Returns the predicted prompt text, or silence when no suggestion is suitable.",
       "properties": {
         "suggestion": {
+          "description": "Composer-ready prompt text after server-side suppression and filtering.",
           "type": [
             "string",
             "null"

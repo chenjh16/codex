@@ -1,13 +1,26 @@
-//! TUI lifecycle for predicted next prompts.
+//! Owns asynchronous next-prompt suggestion state for the active TUI thread.
+//!
+//! `App` starts one fire-and-forget RPC after stable conversation boundaries,
+//! tags it with a generation number, and forwards only the newest result for the
+//! still-visible thread into `ChatWidget`. Typing, paste, turn transitions,
+//! backtrack, and thread replacement invalidate pending work so a late response
+//! cannot overwrite newer composer state.
 
 use super::*;
 
 impl App {
+    /// Clears both pending generation work and the visible ghost-text candidate.
     pub(crate) fn clear_next_prompt_suggestion(&mut self) {
         self.cancel_pending_next_prompt_suggestion();
         self.chat_widget.clear_next_prompt_suggestion();
     }
 
+    /// Starts a suggestion request for the currently displayed primary thread.
+    ///
+    /// This is the normal post-turn entry point. Callers that already know the
+    /// attached thread id, such as resume/fork lifecycle code, should use
+    /// `request_next_prompt_suggestion_for_thread` so transient display state does
+    /// not suppress the initial request.
     pub(super) fn request_next_prompt_suggestion(&mut self, app_server: &AppServerSession) {
         let Some(thread_id) = self.current_displayed_thread_id() else {
             tracing::debug!("skipping next prompt suggestion without displayed thread");
@@ -16,6 +29,12 @@ impl App {
         self.request_next_prompt_suggestion_for_thread(app_server, thread_id);
     }
 
+    /// Starts a suggestion request for `thread_id` and invalidates older requests.
+    ///
+    /// Side conversations deliberately stay silent because their composer has a
+    /// different placeholder contract. Starting a new request clears the current
+    /// visible candidate so the user never accepts text predicted from an older
+    /// completed boundary.
     pub(super) fn request_next_prompt_suggestion_for_thread(
         &mut self,
         app_server: &AppServerSession,
@@ -49,6 +68,12 @@ impl App {
         }));
     }
 
+    /// Applies a completed request only when it still matches current UI state.
+    ///
+    /// Both the generation token and displayed thread must match. Ignoring stale
+    /// results here is the last guard against a slow background request replacing
+    /// a newer suggestion after the user typed, switched threads, or resumed a
+    /// different session.
     pub(super) fn handle_next_prompt_suggestion_ready(
         &mut self,
         generation: u64,
@@ -79,6 +104,11 @@ impl App {
         }
     }
 
+    /// Aborts pending generation without clearing the last visible suggestion.
+    ///
+    /// Input edits use this path so a user can type over the ghost text, clear the
+    /// draft, and still get the same already-produced suggestion back from
+    /// `ChatWidget`'s placeholder refresh.
     pub(super) fn cancel_pending_next_prompt_suggestion(&mut self) {
         if let Some(task) = self.pending_next_prompt_suggestion.take() {
             task.abort();
@@ -88,6 +118,10 @@ impl App {
             .saturating_add(/*rhs*/ 1);
     }
 
+    /// Moves the visible suggestion into editable composer text.
+    ///
+    /// Acceptance never submits the prompt. Returning `false` means there was no
+    /// currently stored suggestion to take.
     pub(crate) fn accept_next_prompt_suggestion(&mut self) -> bool {
         self.cancel_pending_next_prompt_suggestion();
         let Some(suggestion) = self.chat_widget.take_next_prompt_suggestion() else {
@@ -98,6 +132,7 @@ impl App {
         true
     }
 
+    /// Returns whether this key event should accept the visible ghost text.
     pub(crate) fn next_prompt_suggestion_key_should_accept(&self, key_event: KeyEvent) -> bool {
         self.chat_widget.can_show_next_prompt_suggestion()
             && matches!(

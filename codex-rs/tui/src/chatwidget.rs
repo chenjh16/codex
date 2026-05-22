@@ -620,6 +620,7 @@ pub(crate) struct ChatWidget {
     active_side_conversation: bool,
     normal_placeholder_text: String,
     side_placeholder_text: String,
+    /// Stored model suggestion used only as empty-composer ghost text.
     next_prompt_suggestion: Option<String>,
     forked_from: Option<ThreadId>,
     interrupted_turn_notice_mode: InterruptedTurnNoticeMode,
