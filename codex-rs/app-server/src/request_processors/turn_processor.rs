@@ -10,6 +10,7 @@ pub(crate) struct TurnRequestProcessor {
     config: Arc<Config>,
     config_manager: ConfigManager,
     pending_thread_unloads: Arc<Mutex<HashSet<ThreadId>>>,
+    pending_next_prompt_suggestions: Arc<Mutex<HashMap<String, Arc<CancellationToken>>>>,
     thread_state_manager: ThreadStateManager,
     thread_watch_manager: ThreadWatchManager,
     thread_list_state_permit: Arc<Semaphore>,
@@ -71,6 +72,7 @@ impl TurnRequestProcessor {
             config,
             config_manager,
             pending_thread_unloads,
+            pending_next_prompt_suggestions: Arc::new(Mutex::new(HashMap::new())),
             thread_state_manager,
             thread_watch_manager,
             thread_list_state_permit,
@@ -116,9 +118,10 @@ impl TurnRequestProcessor {
 
     /// Handles the internal next-prompt RPC without mutating thread state.
     ///
-    /// The loaded thread owns sampling and filtering. This processor only maps
-    /// the typed RPC boundary onto that thread API and converts unexpected core
-    /// errors into the app-server error channel.
+    /// The loaded thread owns sampling and filtering. This processor maps the
+    /// typed RPC boundary onto that thread API, tracks optional client
+    /// cancellation tokens, and converts unexpected core errors into the
+    /// app-server error channel.
     pub(crate) async fn thread_suggest_next_prompt(
         &self,
         params: ThreadSuggestNextPromptParams,
@@ -686,12 +689,80 @@ impl TurnRequestProcessor {
         &self,
         params: ThreadSuggestNextPromptParams,
     ) -> Result<ThreadSuggestNextPromptResponse, JSONRPCErrorError> {
-        let (_, thread) = self.load_thread(&params.thread_id).await?;
-        let suggestion = thread
-            .suggest_next_prompt()
-            .await
-            .map_err(|err| internal_error(format!("failed to suggest next prompt: {err}")))?;
+        let ThreadSuggestNextPromptParams {
+            thread_id,
+            cancellation_token,
+            cancel,
+        } = params;
+        let cancel = cancel.unwrap_or_default();
+        let suggestion_cancellation = self
+            .next_prompt_suggestion_cancellation(cancellation_token.as_deref(), cancel)
+            .await?;
+        let Some(suggestion_cancellation) = suggestion_cancellation else {
+            return Ok(ThreadSuggestNextPromptResponse { suggestion: None });
+        };
+
+        let result = async {
+            let (_, thread) = self.load_thread(&thread_id).await?;
+            thread
+                .suggest_next_prompt(suggestion_cancellation.as_ref().clone())
+                .await
+                .map_err(|err| internal_error(format!("failed to suggest next prompt: {err}")))
+        }
+        .await;
+        self.clear_next_prompt_suggestion_cancellation(
+            cancellation_token.as_deref(),
+            &suggestion_cancellation,
+        )
+        .await;
+        let suggestion = result?;
         Ok(ThreadSuggestNextPromptResponse { suggestion })
+    }
+
+    async fn next_prompt_suggestion_cancellation(
+        &self,
+        cancellation_token: Option<&str>,
+        cancel: bool,
+    ) -> Result<Option<Arc<CancellationToken>>, JSONRPCErrorError> {
+        let Some(cancellation_token) = cancellation_token else {
+            if cancel {
+                return Err(invalid_request(
+                    "cancellationToken is required when cancel is true",
+                ));
+            }
+            return Ok(Some(Arc::new(CancellationToken::new())));
+        };
+
+        let mut pending_next_prompt_suggestions = self.pending_next_prompt_suggestions.lock().await;
+        if let Some(existing) = pending_next_prompt_suggestions.remove(cancellation_token) {
+            existing.cancel();
+        }
+        if cancel {
+            return Ok(None);
+        }
+
+        let cancellation = Arc::new(CancellationToken::new());
+        pending_next_prompt_suggestions
+            .insert(cancellation_token.to_string(), Arc::clone(&cancellation));
+        Ok(Some(cancellation))
+    }
+
+    async fn clear_next_prompt_suggestion_cancellation(
+        &self,
+        cancellation_token: Option<&str>,
+        suggestion_cancellation: &Arc<CancellationToken>,
+    ) {
+        let Some(cancellation_token) = cancellation_token else {
+            return;
+        };
+
+        let mut pending_next_prompt_suggestions = self.pending_next_prompt_suggestions.lock().await;
+        if pending_next_prompt_suggestions
+            .get(cancellation_token)
+            .is_some_and(|current| Arc::ptr_eq(current, suggestion_cancellation))
+        {
+            pending_next_prompt_suggestions.remove(cancellation_token);
+        }
     }
 
     async fn thread_inject_items_response_inner(

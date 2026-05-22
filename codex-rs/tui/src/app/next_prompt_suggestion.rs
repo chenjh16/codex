@@ -44,6 +44,10 @@ impl App {
             tracing::debug!(%thread_id, "skipping next prompt suggestion for side conversation");
             return;
         }
+        if !self.chat_widget.can_show_next_prompt_suggestion() {
+            tracing::debug!(%thread_id, "skipping next prompt suggestion while composer is unavailable");
+            return;
+        }
 
         self.cancel_pending_next_prompt_suggestion();
         self.chat_widget.clear_next_prompt_suggestion();
@@ -52,20 +56,33 @@ impl App {
             .saturating_add(/*rhs*/ 1);
         let generation = self.next_prompt_suggestion_generation;
         let request_handle = app_server.request_handle();
+        let cancellation_token = format!("next-prompt-suggestion-{}", Uuid::new_v4());
+        let cancel_request = NextPromptSuggestionCancelRequest {
+            request_handle: request_handle.clone(),
+            thread_id,
+            cancellation_token: cancellation_token.clone(),
+        };
         let app_event_tx = self.app_event_tx.clone();
-        self.pending_next_prompt_suggestion = Some(tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let requested_at = Instant::now();
-            let result =
-                super::background_requests::fetch_next_prompt_suggestion(request_handle, thread_id)
-                    .await
-                    .map_err(|err| format!("{err:#}"));
+            let result = super::background_requests::fetch_next_prompt_suggestion(
+                request_handle,
+                thread_id,
+                cancellation_token,
+            )
+            .await
+            .map_err(|err| format!("{err:#}"));
             app_event_tx.send(AppEvent::NextPromptSuggestionReady {
                 generation,
                 thread_id,
                 latency_ms: u64::try_from(requested_at.elapsed().as_millis()).unwrap_or(u64::MAX),
                 result,
             });
-        }));
+        });
+        self.pending_next_prompt_suggestion = Some(PendingNextPromptSuggestion {
+            task,
+            cancel_request: Some(cancel_request),
+        });
     }
 
     /// Applies a completed request only when it still matches current UI state.
@@ -87,6 +104,10 @@ impl App {
             return;
         }
         self.pending_next_prompt_suggestion = None;
+        if !self.chat_widget.can_show_next_prompt_suggestion() {
+            tracing::debug!(%thread_id, "discarding next prompt suggestion while composer is unavailable");
+            return;
+        }
         match result {
             Ok(suggestion) => {
                 tracing::debug!(
@@ -108,10 +129,25 @@ impl App {
     ///
     /// Input edits use this path so a user can type over the ghost text, clear the
     /// draft, and still get the same already-produced suggestion back from
-    /// `ChatWidget`'s placeholder refresh.
+    /// `ChatWidget`'s placeholder refresh. In-flight requests also get a
+    /// best-effort app-server cancellation so hidden sampling does not continue
+    /// after the UI has invalidated it.
     pub(super) fn cancel_pending_next_prompt_suggestion(&mut self) {
-        if let Some(task) = self.pending_next_prompt_suggestion.take() {
-            task.abort();
+        if let Some(pending) = self.pending_next_prompt_suggestion.take() {
+            pending.task.abort();
+            if let Some(cancel_request) = pending.cancel_request {
+                tokio::spawn(async move {
+                    if let Err(err) = super::background_requests::cancel_next_prompt_suggestion(
+                        cancel_request.request_handle,
+                        cancel_request.thread_id,
+                        cancel_request.cancellation_token,
+                    )
+                    .await
+                    {
+                        tracing::debug!(error = %err, "next prompt suggestion cancellation failed");
+                    }
+                });
+            }
         }
         self.next_prompt_suggestion_generation = self
             .next_prompt_suggestion_generation
@@ -135,6 +171,7 @@ impl App {
     /// Returns whether this key event should accept the visible ghost text.
     pub(crate) fn next_prompt_suggestion_key_should_accept(&self, key_event: KeyEvent) -> bool {
         self.chat_widget.can_show_next_prompt_suggestion()
+            && self.chat_widget.has_next_prompt_suggestion()
             && matches!(
                 key_event,
                 KeyEvent {

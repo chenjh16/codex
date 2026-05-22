@@ -556,7 +556,7 @@ pub(crate) struct App {
     /// Monotonic token used to ignore async suggestion results from older UI state.
     next_prompt_suggestion_generation: u64,
     /// Current fire-and-forget suggestion request, if one is still in flight.
-    pending_next_prompt_suggestion: Option<JoinHandle<()>>,
+    pending_next_prompt_suggestion: Option<PendingNextPromptSuggestion>,
     // Serialize plugin enablement writes per plugin so stale completions cannot
     // overwrite a newer toggle, even if the plugin is toggled from different
     // cwd contexts.
@@ -581,6 +581,17 @@ impl RuntimePermissionProfileOverride {
             network: config.permissions.network.clone(),
         }
     }
+}
+
+struct PendingNextPromptSuggestion {
+    task: JoinHandle<()>,
+    cancel_request: Option<NextPromptSuggestionCancelRequest>,
+}
+
+struct NextPromptSuggestionCancelRequest {
+    request_handle: AppServerRequestHandle,
+    thread_id: ThreadId,
+    cancellation_token: String,
 }
 
 fn active_turn_not_steerable_turn_error(error: &TypedRequestError) -> Option<AppServerTurnError> {

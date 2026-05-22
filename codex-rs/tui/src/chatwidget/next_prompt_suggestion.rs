@@ -36,6 +36,11 @@ impl ChatWidget {
         self.next_prompt_suggestion.as_deref()
     }
 
+    /// Reports whether Tab acceptance has concrete suggestion text to move.
+    pub(crate) fn has_next_prompt_suggestion(&self) -> bool {
+        self.next_prompt_suggestion.is_some()
+    }
+
     /// Reports whether ghost text is allowed in the current composer surface.
     ///
     /// Suggestions are hidden while the user has a draft, a modal or popup owns

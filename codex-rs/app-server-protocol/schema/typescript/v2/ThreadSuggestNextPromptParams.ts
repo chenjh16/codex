@@ -13,4 +13,16 @@ export type ThreadSuggestNextPromptParams = {
 /**
  * Thread whose current completed history should be used for prediction.
  */
-threadId: string, };
+threadId: string,
+/**
+ * Optional client token used to cancel an older in-flight suggestion request.
+ *
+ * Reusing a token cancels the older request before this request samples.
+ */
+cancellationToken?: string | null,
+/**
+ * When true, cancel the request identified by `cancellation_token` without sampling.
+ *
+ * This requires `cancellation_token`.
+ */
+cancel?: boolean | null, };

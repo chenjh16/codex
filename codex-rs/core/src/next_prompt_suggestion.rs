@@ -11,9 +11,11 @@
 //! expected silent outcome for early conversations, active turns, incomplete
 //! tool flow, model silence, or filtered output.
 
+use crate::TurnContext;
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::session::session::Session;
+use codex_async_utils::OrCancelExt;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::models::ContentItem;
@@ -23,6 +25,7 @@ use codex_protocol::openai_models::ReasoningEffort;
 use futures::StreamExt;
 use std::collections::HashSet;
 use std::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 const NEXT_PROMPT_SUGGESTION_PROMPT: &str = r#"[SUGGESTION MODE: Suggest what the user might naturally type next into Codex.]
 
@@ -46,6 +49,7 @@ Stay silent if the next step isn't obvious from what the user said.
 Format: 2-12 words, match the user's style including capitalization, verbosity and others.
 
 Reply with ONLY the suggestion, no quotes or explanation."#;
+const NEXT_PROMPT_SUGGESTION_TOKEN_HEADROOM: i64 = 1_024;
 
 /// Predicts the user's likely next prompt without mutating the session.
 ///
@@ -54,7 +58,14 @@ Reply with ONLY the suggestion, no quotes or explanation."#;
 /// pairs are suppressed before sampling because those states do not represent a
 /// stable completed conversation boundary. Returning `Ok(None)` means there is
 /// no suggestion worth showing, not that the request failed.
-pub(crate) async fn suggest_next_prompt(sess: &Session) -> CodexResult<Option<String>> {
+pub(crate) async fn suggest_next_prompt(
+    sess: &Session,
+    cancellation_token: CancellationToken,
+) -> CodexResult<Option<String>> {
+    if cancellation_token.is_cancelled() {
+        tracing::debug!("next prompt suggestion skipped after cancellation");
+        return Ok(None);
+    }
     if sess.active_turn.lock().await.is_some() {
         tracing::debug!("next prompt suggestion skipped while a turn is active");
         return Ok(None);
@@ -63,6 +74,9 @@ pub(crate) async fn suggest_next_prompt(sess: &Session) -> CodexResult<Option<St
     let started_at = Instant::now();
     let mut turn_context = sess.new_lightweight_turn().await;
     prefer_fast_suggestion_profile(&mut turn_context);
+    if !suggestion_prompt_fits_context_window(sess, &turn_context).await {
+        return Ok(None);
+    }
 
     let history = sess.clone_history().await;
     if has_unpaired_tool_flow(history.raw_items()) {
@@ -97,7 +111,7 @@ pub(crate) async fn suggest_next_prompt(sess: &Session) -> CodexResult<Option<St
         turn_context.provider.info().name.as_str(),
     );
     let mut client_session = sess.services.model_client.new_session();
-    let mut stream = client_session
+    let mut stream = match client_session
         .stream(
             &prompt,
             &turn_context.model_info,
@@ -108,10 +122,24 @@ pub(crate) async fn suggest_next_prompt(sess: &Session) -> CodexResult<Option<St
             /*turn_metadata_header*/ None,
             &inference_trace,
         )
-        .await?;
+        .or_cancel(&cancellation_token)
+        .await
+    {
+        Ok(stream) => stream?,
+        Err(codex_async_utils::CancelErr::Cancelled) => {
+            tracing::debug!("next prompt suggestion canceled before sampling started");
+            return Ok(None);
+        }
+    };
     let mut streamed_text = String::new();
     let mut completed_text = None;
-    while let Some(event) = stream.next().await {
+    while let Some(event) = match stream.next().or_cancel(&cancellation_token).await {
+        Ok(event) => event,
+        Err(codex_async_utils::CancelErr::Cancelled) => {
+            tracing::debug!("next prompt suggestion canceled while sampling");
+            return Ok(None);
+        }
+    } {
         match event? {
             ResponseEvent::OutputItemDone(item) => {
                 if let Some(text) = assistant_output_text(&item) {
@@ -135,6 +163,43 @@ pub(crate) async fn suggest_next_prompt(sess: &Session) -> CodexResult<Option<St
         "next prompt suggestion sampled"
     );
     Ok(suggestion)
+}
+
+async fn suggestion_prompt_fits_context_window(sess: &Session, turn_context: &TurnContext) -> bool {
+    let model_context_window = turn_context.model_context_window();
+    let estimated_token_count = sess.get_estimated_token_count(turn_context).await;
+    if suggestion_prompt_has_headroom(estimated_token_count, model_context_window) {
+        return true;
+    }
+    let Some(model_context_window) = model_context_window else {
+        return true;
+    };
+    let Some(estimated_token_count) = estimated_token_count else {
+        return true;
+    };
+    let suggestion_prompt_limit =
+        model_context_window.saturating_sub(NEXT_PROMPT_SUGGESTION_TOKEN_HEADROOM);
+
+    tracing::debug!(
+        estimated_token_count,
+        model_context_window,
+        suggestion_prompt_limit,
+        "next prompt suggestion skipped near context window"
+    );
+    false
+}
+
+fn suggestion_prompt_has_headroom(
+    estimated_token_count: Option<i64>,
+    model_context_window: Option<i64>,
+) -> bool {
+    let (Some(estimated_token_count), Some(model_context_window)) =
+        (estimated_token_count, model_context_window)
+    else {
+        return true;
+    };
+    estimated_token_count
+        < model_context_window.saturating_sub(NEXT_PROMPT_SUGGESTION_TOKEN_HEADROOM)
 }
 
 fn assistant_message_count(items: &[ResponseItem]) -> usize {
@@ -323,6 +388,7 @@ fn starts_with_any(value: &str, prefixes: &[&str]) -> bool {
 mod tests {
     use super::filter_next_prompt_suggestion;
     use super::has_unpaired_tool_flow;
+    use super::suggestion_prompt_has_headroom;
     use codex_protocol::models::FunctionCallOutputPayload;
     use codex_protocol::models::ResponseItem;
     use pretty_assertions::assert_eq;
@@ -349,6 +415,14 @@ mod tests {
             filter_next_prompt_suggestion("set CODEX_HOME"),
             Some("set CODEX_HOME".to_string())
         );
+    }
+
+    #[test]
+    fn suggestion_prompt_skips_near_context_window() {
+        assert!(!suggestion_prompt_has_headroom(
+            /*estimated_token_count*/ Some(127_100),
+            /*model_context_window*/ Some(128_000)
+        ));
     }
 
     #[test]

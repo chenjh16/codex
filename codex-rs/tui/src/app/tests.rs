@@ -4378,6 +4378,18 @@ async fn tab_accepts_next_prompt_suggestion_without_submitting() {
 }
 
 #[tokio::test]
+async fn tab_does_not_accept_before_next_prompt_suggestion_arrives() {
+    let (app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
+    let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+
+    assert!(!app.next_prompt_suggestion_key_should_accept(tab));
+    assert!(
+        op_rx.try_recv().is_err(),
+        "checking Tab acceptance should not submit"
+    );
+}
+
+#[tokio::test]
 async fn visible_next_prompt_suggestion_returns_after_draft_is_cleared() {
     let (mut app, _app_event_rx, mut op_rx) = make_test_app_with_channels().await;
     app.chat_widget
@@ -4405,6 +4417,24 @@ async fn visible_next_prompt_suggestion_returns_after_draft_is_cleared() {
 }
 
 #[tokio::test]
+async fn unavailable_composer_discards_completed_next_prompt_suggestion() {
+    let mut app = make_test_app().await;
+    let thread_id = ThreadId::new();
+    app.active_thread_id = Some(thread_id);
+    app.next_prompt_suggestion_generation = 1;
+    app.chat_widget.apply_external_edit("draft".to_string());
+
+    app.handle_next_prompt_suggestion_ready(
+        /*generation*/ 1,
+        thread_id,
+        /*latency_ms*/ 0,
+        Ok(Some("run the tests".to_string())),
+    );
+
+    assert_eq!(app.chat_widget.next_prompt_suggestion(), None);
+}
+
+#[tokio::test]
 async fn stale_next_prompt_suggestion_result_is_ignored() {
     let mut app = make_test_app().await;
     let thread_id = ThreadId::new();
@@ -4426,7 +4456,10 @@ async fn typing_cancels_pending_next_prompt_suggestion_without_clearing_visible_
     let mut app = make_test_app().await;
     app.chat_widget
         .set_next_prompt_suggestion(Some("run the tests".to_string()));
-    app.pending_next_prompt_suggestion = Some(tokio::spawn(std::future::pending()));
+    app.pending_next_prompt_suggestion = Some(PendingNextPromptSuggestion {
+        task: tokio::spawn(std::future::pending()),
+        cancel_request: None,
+    });
 
     app.cancel_pending_next_prompt_suggestion();
 

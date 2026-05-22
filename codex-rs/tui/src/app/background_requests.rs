@@ -32,6 +32,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 pub(super) async fn fetch_next_prompt_suggestion(
     request_handle: AppServerRequestHandle,
     thread_id: ThreadId,
+    cancellation_token: String,
 ) -> Result<Option<String>> {
     let request_id = RequestId::String(format!("next-prompt-suggestion-{}", Uuid::new_v4()));
     let response: ThreadSuggestNextPromptResponse = request_handle
@@ -39,11 +40,34 @@ pub(super) async fn fetch_next_prompt_suggestion(
             request_id,
             params: ThreadSuggestNextPromptParams {
                 thread_id: thread_id.to_string(),
+                cancellation_token: Some(cancellation_token),
+                cancel: None,
             },
         })
         .await
         .wrap_err("thread/suggestNextPrompt failed in TUI")?;
     Ok(response.suggestion)
+}
+
+/// Cancels one in-flight best-effort next-prompt suggestion request.
+pub(super) async fn cancel_next_prompt_suggestion(
+    request_handle: AppServerRequestHandle,
+    thread_id: ThreadId,
+    cancellation_token: String,
+) -> Result<()> {
+    let request_id = RequestId::String(format!("next-prompt-suggestion-cancel-{}", Uuid::new_v4()));
+    let _response: ThreadSuggestNextPromptResponse = request_handle
+        .request_typed(ClientRequest::ThreadSuggestNextPrompt {
+            request_id,
+            params: ThreadSuggestNextPromptParams {
+                thread_id: thread_id.to_string(),
+                cancellation_token: Some(cancellation_token),
+                cancel: Some(/*cancel*/ true),
+            },
+        })
+        .await
+        .wrap_err("thread/suggestNextPrompt cancellation failed in TUI")?;
+    Ok(())
 }
 
 impl App {

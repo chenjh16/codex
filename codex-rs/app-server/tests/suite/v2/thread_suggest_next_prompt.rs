@@ -14,6 +14,7 @@ use core_test_support::responses;
 use serde_json::json;
 use std::path::Path;
 use tempfile::TempDir;
+use tokio::time::sleep;
 use tokio::time::timeout;
 
 const DEFAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(/*secs*/ 10);
@@ -47,28 +48,7 @@ async fn thread_suggest_next_prompt_samples_loaded_history_without_tools() -> Re
     .await??;
     let ThreadStartResponse { thread, .. } = to_response::<ThreadStartResponse>(thread_resp)?;
 
-    let items = vec![
-        message("user", "fix the bug"),
-        message("assistant", "I fixed it"),
-        message("user", "continue"),
-        message("assistant", "The change is ready"),
-    ];
-    let inject_req = mcp
-        .send_thread_inject_items_request(ThreadInjectItemsParams {
-            thread_id: thread.id.clone(),
-            items: items
-                .into_iter()
-                .map(serde_json::to_value)
-                .collect::<serde_json::Result<Vec<_>>>()?,
-        })
-        .await?;
-    let inject_resp: JSONRPCResponse = timeout(
-        DEFAULT_READ_TIMEOUT,
-        mcp.read_stream_until_response_message(RequestId::Integer(inject_req)),
-    )
-    .await??;
-    let _response: ThreadInjectItemsResponse =
-        to_response::<ThreadInjectItemsResponse>(inject_resp)?;
+    inject_suggestion_history(&mut mcp, &thread.id).await?;
 
     let request_id = mcp
         .send_raw_request(
@@ -94,6 +74,123 @@ async fn thread_suggest_next_prompt_samples_loaded_history_without_tools() -> Re
         "suggestion prompt should be appended as the final user message"
     );
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_suggest_next_prompt_cancel_stops_in_flight_sampling() -> Result<()> {
+    let server = responses::start_mock_server().await;
+    let body = responses::sse(vec![
+        responses::ev_response_created("resp-1"),
+        responses::ev_assistant_message("msg-1", "run the tests"),
+        responses::ev_completed("resp-1"),
+    ]);
+    let response_mock = responses::mount_response_once(
+        &server,
+        responses::sse_response(body).set_delay(std::time::Duration::from_secs(/*secs*/ 5)),
+    )
+    .await;
+
+    let codex_home = TempDir::new()?;
+    create_config_toml(codex_home.path(), &server.uri())?;
+
+    let mut mcp = McpProcess::new(codex_home.path()).await?;
+    timeout(DEFAULT_READ_TIMEOUT, mcp.initialize()).await??;
+
+    let thread_req = mcp
+        .send_thread_start_request(ThreadStartParams {
+            model: Some("mock-model".to_string()),
+            ..Default::default()
+        })
+        .await?;
+    let thread_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(thread_req)),
+    )
+    .await??;
+    let ThreadStartResponse { thread, .. } = to_response::<ThreadStartResponse>(thread_resp)?;
+    inject_suggestion_history(&mut mcp, &thread.id).await?;
+
+    let suggestion_req = mcp
+        .send_raw_request(
+            "thread/suggestNextPrompt",
+            Some(json!({
+                "threadId": thread.id,
+                "cancellationToken": "next-prompt-suggestion-test",
+            })),
+        )
+        .await?;
+    wait_for_request_count(&response_mock, /*expected*/ 1).await?;
+    let cancel_req = mcp
+        .send_raw_request(
+            "thread/suggestNextPrompt",
+            Some(json!({
+                "threadId": thread.id,
+                "cancellationToken": "next-prompt-suggestion-test",
+                "cancel": true,
+            })),
+        )
+        .await?;
+
+    let cancel_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(cancel_req)),
+    )
+    .await??;
+    let cancel_resp = to_response::<ThreadSuggestNextPromptResponse>(cancel_resp)?;
+    assert_eq!(cancel_resp.suggestion, None);
+
+    let suggestion_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(suggestion_req)),
+    )
+    .await??;
+    let suggestion_resp = to_response::<ThreadSuggestNextPromptResponse>(suggestion_resp)?;
+    assert_eq!(suggestion_resp.suggestion, None);
+    assert_eq!(response_mock.requests().len(), /*expected*/ 1);
+
+    Ok(())
+}
+
+async fn inject_suggestion_history(mcp: &mut McpProcess, thread_id: &str) -> Result<()> {
+    let items = vec![
+        message("user", "fix the bug"),
+        message("assistant", "I fixed it"),
+        message("user", "continue"),
+        message("assistant", "The change is ready"),
+    ];
+    let inject_req = mcp
+        .send_thread_inject_items_request(ThreadInjectItemsParams {
+            thread_id: thread_id.to_string(),
+            items: items
+                .into_iter()
+                .map(serde_json::to_value)
+                .collect::<serde_json::Result<Vec<_>>>()?,
+        })
+        .await?;
+    let inject_resp: JSONRPCResponse = timeout(
+        DEFAULT_READ_TIMEOUT,
+        mcp.read_stream_until_response_message(RequestId::Integer(inject_req)),
+    )
+    .await??;
+    let _response: ThreadInjectItemsResponse =
+        to_response::<ThreadInjectItemsResponse>(inject_resp)?;
+    Ok(())
+}
+
+async fn wait_for_request_count(
+    response_mock: &core_test_support::responses::ResponseMock,
+    expected: usize,
+) -> Result<()> {
+    timeout(DEFAULT_READ_TIMEOUT, async {
+        loop {
+            if response_mock.requests().len() >= expected {
+                return;
+            }
+            sleep(std::time::Duration::from_millis(/*millis*/ 10)).await;
+        }
+    })
+    .await?;
     Ok(())
 }
 
