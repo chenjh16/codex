@@ -1,6 +1,6 @@
 # Codex Agent 能力分析与 HarmonyOS 缺口
 
-更新时间：2026-05-23 05:10 CST
+更新时间：2026-05-23 04:55 CST
 
 ## 摘要
 
@@ -18,7 +18,7 @@
 - 基础命令：`command -v codex` 指向 `/storage/Users/currentUser/.local/bin/codex`；`codex --version` 输出 `codex-cli 0.0.0`；`codex --help` 可输出帮助。
 - 非交互：`codex exec` 的基础 API smoke 和工具调用 e2e 已通过。
 - TUI：`TERM=xterm-256color`、`screen-256color`、`vt100` 均完成两轮 prompt、收到模型响应、`/quit` 正常退出，且 warning/panic/error 计数为 0。
-- 安全配置：远端 `~/.codex/config.toml` 使用 `env_key = "SUBAPI_ELIAS_API_KEY"`，不保存 key 明文。
+- 安全配置：最终审计已将远端 `~/.codex/config.toml` 修正为 `env_key = "SUBAPI_ELIAS_API_KEY"`，不保存 key 明文；旧 `experimental_bearer_token` 残留已删除，复扫为 clean。因明文曾短暂存在于远端配置和审计输出中，建议轮换该测试 key。
 
 ## 能力分层
 

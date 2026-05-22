@@ -104,8 +104,9 @@ stream_idle_timeout_ms = 120000
 - 2026-05-23 04:17 CST：远端 provider 配置已恢复为 `env_key = "SUBAPI_ELIAS_API_KEY"`，不在远端 config 保存 key 值；通过 SSH stdin 临时注入本地 key 后，非交互 `codex exec "Return exactly: env-ok"` 通过并返回 `env-ok`。
 - 2026-05-23 04:22 CST：安全版内存 PTY harness 完成 TUI 两轮 e2e：第一轮 prompt 返回 `dcba`，第二轮 prompt 返回 `zyxw`，`bubblewrap_warning_count=0`、`panic_count=0`、`error_count=0`、`completed_two_rounds=yes`、`shutdown_seen=yes`。远端无遗留 TUI 测试进程。
 - 2026-05-23 04:25 CST：同一安全版内存 PTY harness 补充覆盖 `TERM=screen-256color` 和 `TERM=vt100`；两者均完成两轮 prompt，返回 `hgfe` 和 `lkji`，warning/panic/error 计数均为 0，`shutdown_seen=yes`。
-- 2026-05-23 05:10 CST：按用户建议完成用户目录安装：`/storage/Users/currentUser/.local/bin/codex`。安装后在远端 zsh 中把 `$HOME/.local/bin` 加到 PATH，`command -v codex` 返回该路径，`codex --version` 返回 `codex-cli 0.0.0`，`codex --help` 可正常输出帮助内容。
-- 2026-05-23 05:10 CST：补充 Agent 能力分析文档 `docs/codex-agent-capability-analysis.md`。结论是 HarmonyOS 当前已完成单 Agent CLI/TUI 主链路，Agent 相关源码能力包括多 Agent、MCP、plugin/skill、Agent graph、Agent identity、app-server/remote-control 和 cloud task；但 Code Mode 在 OHOS 上为 stub，多 Agent/MCP/plugin/app-server/cloud/identity 尚未端到端验收。
+- 2026-05-23 04:55 CST：按用户建议完成用户目录安装：`/storage/Users/currentUser/.local/bin/codex`。安装后在远端 zsh 中把 `$HOME/.local/bin` 加到 PATH，`command -v codex` 返回该路径，`codex --version` 返回 `codex-cli 0.0.0`，`codex --help` 可正常输出帮助内容。
+- 2026-05-23 04:55 CST：补充 Agent 能力分析文档 `docs/codex-agent-capability-analysis.md`。结论是 HarmonyOS 当前已完成单 Agent CLI/TUI 主链路，Agent 相关源码能力包括多 Agent、MCP、plugin/skill、Agent graph、Agent identity、app-server/remote-control 和 cloud task；但 Code Mode 在 OHOS 上为 stub，多 Agent/MCP/plugin/app-server/cloud/identity 尚未端到端验收。
+- 2026-05-23 04:55 CST：最终配置审计发现远端 `~/.codex/config.toml` 曾残留旧 `experimental_bearer_token` 明文配置；已删除该项、启用 `env_key = "SUBAPI_ELIAS_API_KEY"`，并复扫确认 `secret-scan=clean`。因为明文曾短暂存在于远端配置和审计输出中，建议轮换该测试 key 后再长期使用。
 
 ## Next Steps
 

@@ -519,6 +519,13 @@ exec "$HOME/Claude/codex-openai/codex-rs/target/release/codex" "$@"
   - `codex --help` 可正常输出帮助内容
 - 经验：安装 wrapper 不应复制二进制，避免后续签名/构建更新后 PATH 入口指向旧文件；通过 exec release binary 可以复用同一签名产物。
 
+## 2026-05-23 最终配置审计结果
+
+- 最终审计发现远端 `~/.codex/config.toml` 曾残留旧 `experimental_bearer_token` 明文配置，与文档期望的 secret-safe 状态不一致。
+- 已立即删除 `experimental_bearer_token`，启用 `env_key = "SUBAPI_ELIAS_API_KEY"`。
+- 复扫结果：远端 config 中 `base_url`、`wire_api`、`env_key` 存在，`experimental_bearer_token` 不存在，`sk-...` 形态密钥扫描为 clean。
+- 因为明文 key 曾短暂存在于远端配置和审计输出中，建议轮换该测试 key 后再长期使用。
+
 ## 2026-05-23 Agent 能力分析结论
 
 - 当前 Codex 源码已具备多层 Agent 能力：单 Agent CLI/TUI、工具运行时、MCP client/server、plugin/skill discovery、多 Agent spawn/send/wait/close/resume、Agent graph store、Agent identity、app-server/remote-control、exec-server、cloud task 和 Code Mode。
