@@ -52,7 +52,6 @@ use codex_app_server_protocol::TurnStartResponse;
 use codex_app_server_protocol::TurnStartedNotification;
 use codex_arg0::Arg0DispatchPaths;
 use codex_cloud_requirements::cloud_requirements_loader_for_storage;
-use codex_cloud_requirements::refresh_managed_chatgpt_token_for_storage_if_near_expiry;
 use codex_config::ConfigLoadError;
 use codex_config::ConfigLoadOptions;
 use codex_config::LoaderOverrides;
@@ -157,6 +156,7 @@ use crate::event_processor::EventProcessor;
 
 const DEFAULT_ANALYTICS_ENABLED: bool = true;
 const EXEC_DEFAULT_LOG_FILTER: &str = "error,opentelemetry_sdk=off,opentelemetry_otlp=off";
+
 enum InitialOperation {
     UserTurn {
         items: Vec<UserInput>,
@@ -469,14 +469,6 @@ pub async fn run_main(cli: Cli, arg0_paths: Arg0DispatchPaths) -> anyhow::Result
         eprintln!("{err}");
         std::process::exit(1);
     }
-
-    refresh_managed_chatgpt_token_for_storage_if_near_expiry(
-        config.codex_home.to_path_buf(),
-        /*enable_codex_api_key_env*/ true,
-        config.cli_auth_credentials_store_mode,
-        config.chatgpt_base_url.clone(),
-    )
-    .await;
 
     let otel = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         codex_core::otel_init::build_provider(

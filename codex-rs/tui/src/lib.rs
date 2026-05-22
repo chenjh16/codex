@@ -38,7 +38,6 @@ use codex_app_server_protocol::ThreadListParams;
 use codex_app_server_protocol::ThreadSortKey as AppServerThreadSortKey;
 use codex_app_server_protocol::ThreadSourceKind;
 use codex_cloud_requirements::cloud_requirements_loader_for_storage;
-use codex_cloud_requirements::refresh_managed_chatgpt_token_for_storage_if_near_expiry;
 use codex_config::CloudRequirementsLoader;
 use codex_config::ConfigLoadError;
 use codex_config::LoaderOverrides;
@@ -282,6 +281,7 @@ pub use public_widgets::composer_input::ComposerInput;
 #[cfg(unix)]
 const AUTO_CONNECT_DAEMON_CONNECT_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(50);
+
 #[allow(clippy::too_many_arguments)]
 async fn start_embedded_app_server(
     arg0_paths: Arg0DispatchPaths,
@@ -1168,14 +1168,6 @@ pub async fn run_main(
             eprintln!("{err}");
             std::process::exit(1);
         }
-
-        refresh_managed_chatgpt_token_for_storage_if_near_expiry(
-            config.codex_home.to_path_buf(),
-            /*enable_codex_api_key_env*/ false,
-            config.cli_auth_credentials_store_mode,
-            config.chatgpt_base_url.clone(),
-        )
-        .await;
     }
 
     let log_dir = config.log_dir.clone();

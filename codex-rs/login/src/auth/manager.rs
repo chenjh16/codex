@@ -89,9 +89,9 @@ struct ChatgptAuthState {
 
 const TOKEN_REFRESH_INTERVAL: i64 = 8;
 const CHATGPT_ACCESS_TOKEN_REFRESH_WINDOW_MINUTES: i64 = 5;
-const CHATGPT_ACCESS_TOKEN_STARTUP_REFRESH_LOCK_FILENAME: &str =
-    "chatgpt-access-token-startup-refresh.lock";
-const CHATGPT_ACCESS_TOKEN_STARTUP_REFRESH_LOCK_POLL_INTERVAL_MS: u64 = 50;
+const CHATGPT_ACCESS_TOKEN_PROACTIVE_REFRESH_LOCK_FILENAME: &str =
+    "chatgpt-access-token-proactive-refresh.lock";
+const CHATGPT_ACCESS_TOKEN_PROACTIVE_REFRESH_LOCK_POLL_INTERVAL_MS: u64 = 50;
 
 const REFRESH_TOKEN_EXPIRED_MESSAGE: &str = "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again.";
 const REFRESH_TOKEN_REUSED_MESSAGE: &str = "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again.";
@@ -1429,16 +1429,16 @@ impl AuthManager {
     }
 
     /// Current cached auth (clone). May be `None` if not logged in or load failed.
-    /// For stale managed ChatGPT auth, first performs a guarded reload and then
-    /// refreshes only if the on-disk auth is unchanged.
+    /// For managed ChatGPT auth that needs a proactive refresh, first performs
+    /// a guarded reload and then refreshes only if the on-disk auth is unchanged.
     pub async fn auth(&self) -> Option<CodexAuth> {
         if let Some(auth) = self.resolve_external_api_key_auth().await {
             return Some(auth);
         }
 
         let auth = self.auth_cached()?;
-        if Self::is_stale_for_proactive_refresh(&auth)
-            && let Err(err) = self.refresh_token().await
+        if Self::should_refresh_proactively(&auth)
+            && let Err(err) = self.proactively_refresh_token().await
         {
             tracing::error!("Failed to refresh token: {}", err);
             return Some(auth);
@@ -1694,10 +1694,6 @@ impl AuthManager {
                 REFRESH_TOKEN_UNKNOWN_MESSAGE.to_string(),
             ))
         })?;
-        self.refresh_token_with_refresh_lock_held().await
-    }
-
-    async fn refresh_token_with_refresh_lock_held(&self) -> Result<(), RefreshTokenError> {
         let auth_before_reload = self.auth_cached();
         if auth_before_reload
             .as_ref()
@@ -1727,45 +1723,15 @@ impl AuthManager {
         }
     }
 
-    /// Refresh managed ChatGPT auth when its access token is nearly expired.
-    ///
-    /// CLI startup uses the same five-minute refresh window as ChatGPT web so a
-    /// new session does not begin with a token that is about to expire. Other auth
-    /// modes either cannot be refreshed locally or have separate refresh ownership,
-    /// so they intentionally no-op here.
-    pub async fn refresh_managed_chatgpt_token_if_near_expiry(
-        &self,
-    ) -> Result<(), RefreshTokenError> {
-        let Some(CodexAuth::Chatgpt(chatgpt_auth)) = self.auth_cached() else {
-            return Ok(());
-        };
-        let should_refresh = chatgpt_auth
-            .current_token_data()
-            .and_then(|tokens| parse_jwt_expiration(&tokens.access_token).ok().flatten())
-            .is_some_and(|expires_at| {
-                expires_at
-                    <= Utc::now()
-                        + chrono::Duration::minutes(CHATGPT_ACCESS_TOKEN_REFRESH_WINDOW_MINUTES)
-            });
-        if !should_refresh {
-            return Ok(());
-        }
-
-        let _refresh_lock = self.acquire_chatgpt_startup_refresh_lock().await?;
-        let _refresh_guard = self.refresh_lock.acquire().await.map_err(|_| {
-            RefreshTokenError::Permanent(RefreshTokenFailedError::new(
-                RefreshTokenFailedReason::Other,
-                REFRESH_TOKEN_UNKNOWN_MESSAGE.to_string(),
-            ))
-        })?;
-
-        self.refresh_token_with_refresh_lock_held().await
+    async fn proactively_refresh_token(&self) -> Result<(), RefreshTokenError> {
+        let _refresh_lock = self.acquire_chatgpt_proactive_refresh_lock().await?;
+        self.refresh_token().await
     }
 
-    async fn acquire_chatgpt_startup_refresh_lock(&self) -> Result<File, RefreshTokenError> {
+    async fn acquire_chatgpt_proactive_refresh_lock(&self) -> Result<File, RefreshTokenError> {
         let mut logged_wait = false;
         loop {
-            if let Some(lock_file) = self.try_acquire_chatgpt_startup_refresh_lock()? {
+            if let Some(lock_file) = self.try_acquire_chatgpt_proactive_refresh_lock()? {
                 return Ok(lock_file);
             }
             if !logged_wait {
@@ -1775,16 +1741,18 @@ impl AuthManager {
                 logged_wait = true;
             }
             tokio::time::sleep(std::time::Duration::from_millis(
-                CHATGPT_ACCESS_TOKEN_STARTUP_REFRESH_LOCK_POLL_INTERVAL_MS,
+                CHATGPT_ACCESS_TOKEN_PROACTIVE_REFRESH_LOCK_POLL_INTERVAL_MS,
             ))
             .await;
         }
     }
 
-    fn try_acquire_chatgpt_startup_refresh_lock(&self) -> Result<Option<File>, RefreshTokenError> {
+    fn try_acquire_chatgpt_proactive_refresh_lock(
+        &self,
+    ) -> Result<Option<File>, RefreshTokenError> {
         let lock_path = self
             .codex_home
-            .join(CHATGPT_ACCESS_TOKEN_STARTUP_REFRESH_LOCK_FILENAME);
+            .join(CHATGPT_ACCESS_TOKEN_PROACTIVE_REFRESH_LOCK_FILENAME);
         if let Some(parent) = lock_path.parent() {
             std::fs::create_dir_all(parent).map_err(RefreshTokenError::Transient)?;
         }
@@ -1899,7 +1867,7 @@ impl AuthManager {
         )
     }
 
-    fn is_stale_for_proactive_refresh(auth: &CodexAuth) -> bool {
+    fn should_refresh_proactively(auth: &CodexAuth) -> bool {
         let chatgpt_auth = match auth {
             CodexAuth::Chatgpt(chatgpt_auth) => chatgpt_auth,
             _ => return false,
@@ -1912,7 +1880,9 @@ impl AuthManager {
         if let Some(tokens) = auth_dot_json.tokens.as_ref()
             && let Ok(Some(expires_at)) = parse_jwt_expiration(&tokens.access_token)
         {
-            return expires_at <= Utc::now();
+            return expires_at
+                <= Utc::now()
+                    + chrono::Duration::minutes(CHATGPT_ACCESS_TOKEN_REFRESH_WINDOW_MINUTES);
         }
         let last_refresh = match auth_dot_json.last_refresh {
             Some(last_refresh) => last_refresh,

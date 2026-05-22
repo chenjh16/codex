@@ -161,7 +161,7 @@ async fn refresh_token_refreshes_when_auth_is_unchanged() -> Result<()> {
 
 #[serial_test::serial(auth_refresh)]
 #[tokio::test]
-async fn refresh_managed_chatgpt_token_refreshes_when_auth_is_near_expiry() -> Result<()> {
+async fn auth_refreshes_when_access_token_is_near_expiry() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
@@ -188,16 +188,21 @@ async fn refresh_managed_chatgpt_token_refreshes_when_auth_is_near_expiry() -> R
     };
     ctx.write_auth(&initial_auth).await?;
 
-    ctx.auth_manager
-        .refresh_managed_chatgpt_token_if_near_expiry()
+    let cached_auth = ctx
+        .auth_manager
+        .auth()
         .await
-        .context("managed ChatGPT refresh should succeed")?;
+        .context("auth should be cached")?;
 
     let refreshed_tokens = TokenData {
         access_token: "new-access-token".to_string(),
         refresh_token: "new-refresh-token".to_string(),
         ..initial_tokens.clone()
     };
+    let cached = cached_auth
+        .get_token_data()
+        .context("token data should refresh")?;
+    assert_eq!(cached, refreshed_tokens);
     let stored = ctx.load_auth()?;
     let tokens = stored.tokens.as_ref().context("tokens should exist")?;
     assert_eq!(tokens, &refreshed_tokens);
@@ -216,7 +221,7 @@ async fn refresh_managed_chatgpt_token_refreshes_when_auth_is_near_expiry() -> R
 
 #[serial_test::serial(auth_refresh)]
 #[tokio::test]
-async fn refresh_managed_chatgpt_token_skips_auth_outside_refresh_window() -> Result<()> {
+async fn auth_skips_access_token_outside_refresh_window() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
@@ -233,11 +238,16 @@ async fn refresh_managed_chatgpt_token_skips_auth_outside_refresh_window() -> Re
     };
     ctx.write_auth(&initial_auth).await?;
 
-    ctx.auth_manager
-        .refresh_managed_chatgpt_token_if_near_expiry()
+    let cached_auth = ctx
+        .auth_manager
+        .auth()
         .await
-        .context("managed ChatGPT refresh should no-op")?;
+        .context("auth should be cached")?;
 
+    let cached = cached_auth
+        .get_token_data()
+        .context("token data should remain cached")?;
+    assert_eq!(cached, initial_tokens);
     assert_eq!(ctx.load_auth()?, initial_auth);
     let requests = server.received_requests().await.unwrap_or_default();
     assert!(requests.is_empty(), "expected no refresh token requests");
@@ -247,7 +257,7 @@ async fn refresh_managed_chatgpt_token_skips_auth_outside_refresh_window() -> Re
 
 #[serial_test::serial(auth_refresh)]
 #[tokio::test]
-async fn refresh_managed_chatgpt_token_waits_while_startup_refresh_lock_is_held() -> Result<()> {
+async fn auth_waits_while_proactive_refresh_lock_is_held() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
@@ -274,43 +284,34 @@ async fn refresh_managed_chatgpt_token_waits_while_startup_refresh_lock_is_held(
     };
     ctx.write_auth(&initial_auth).await?;
 
-    let lock_path = ctx
-        .codex_home
-        .path()
-        .join("chatgpt-access-token-startup-refresh.lock");
-    let lock_file = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(lock_path)?;
-    lock_file.try_lock()?;
+    let lock_file = ctx.hold_proactive_refresh_lock()?;
 
     let auth_manager = Arc::clone(&ctx.auth_manager);
-    let refresh_task = tokio::spawn(async move {
-        auth_manager
-            .refresh_managed_chatgpt_token_if_near_expiry()
-            .await
-    });
+    let refresh_task = tokio::spawn(async move { auth_manager.auth().await });
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     assert!(
         !refresh_task.is_finished(),
-        "managed ChatGPT refresh should wait while another startup holds the lock"
+        "auth should wait while another process holds the proactive refresh lock"
     );
     assert_eq!(ctx.load_auth()?, initial_auth);
     let requests = server.received_requests().await.unwrap_or_default();
     assert!(
         requests.is_empty(),
-        "expected no refresh token requests before the startup lock is released"
+        "expected no refresh token requests before the proactive refresh lock is released"
     );
 
     drop(lock_file);
-    refresh_task
+    let cached_auth = refresh_task
         .await
-        .context("startup refresh task should join")?
-        .context("managed ChatGPT refresh should resume after the lock is released")?;
+        .context("proactive refresh task should join")?
+        .context("auth should stay cached after the lock is released")?;
 
+    let cached = cached_auth
+        .get_token_data()
+        .context("token data should refresh")?;
+    assert_eq!(cached.access_token, "new-access-token");
+    assert_eq!(cached.refresh_token, "new-refresh-token");
     let stored = ctx.load_auth()?;
     let tokens = stored.tokens.as_ref().context("tokens should exist")?;
     assert_eq!(tokens.access_token, "new-access-token");
@@ -322,7 +323,7 @@ async fn refresh_managed_chatgpt_token_waits_while_startup_refresh_lock_is_held(
 
 #[serial_test::serial(auth_refresh)]
 #[tokio::test]
-async fn refresh_token_does_not_wait_while_startup_refresh_lock_is_held() -> Result<()> {
+async fn refresh_token_does_not_wait_while_proactive_refresh_lock_is_held() -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = MockServer::start().await;
@@ -349,29 +350,15 @@ async fn refresh_token_does_not_wait_while_startup_refresh_lock_is_held() -> Res
     })
     .await?;
 
-    let lock_path = ctx
-        .codex_home
-        .path()
-        .join("chatgpt-access-token-startup-refresh.lock");
-    let lock_file = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(lock_path)?;
-    lock_file.try_lock()?;
+    let lock_file = ctx.hold_proactive_refresh_lock()?;
 
     let auth_manager = Arc::clone(&ctx.auth_manager);
-    let startup_refresh_task = tokio::spawn(async move {
-        auth_manager
-            .refresh_managed_chatgpt_token_if_near_expiry()
-            .await
-    });
+    let proactive_refresh_task = tokio::spawn(async move { auth_manager.auth().await });
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     assert!(
-        !startup_refresh_task.is_finished(),
-        "startup refresh should wait while another process holds the file lock"
+        !proactive_refresh_task.is_finished(),
+        "proactive refresh should wait while another process holds the file lock"
     );
 
     tokio::time::timeout(
@@ -379,11 +366,11 @@ async fn refresh_token_does_not_wait_while_startup_refresh_lock_is_held() -> Res
         ctx.auth_manager.refresh_token_from_authority(),
     )
     .await
-    .context("normal refresh should not wait for the startup file lock")?
+    .context("normal refresh should not wait for the proactive file lock")?
     .context("normal refresh should succeed")?;
 
-    startup_refresh_task.abort();
-    let _ = startup_refresh_task.await;
+    proactive_refresh_task.abort();
+    let _ = proactive_refresh_task.await;
     drop(lock_file);
 
     let stored = ctx.load_auth()?;
@@ -1246,6 +1233,21 @@ impl RefreshTokenTestContext {
         )?;
         self.auth_manager.reload().await;
         Ok(())
+    }
+
+    fn hold_proactive_refresh_lock(&self) -> Result<File> {
+        let lock_path = self
+            .codex_home
+            .path()
+            .join("chatgpt-access-token-proactive-refresh.lock");
+        let lock_file = File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_path)?;
+        lock_file.try_lock()?;
+        Ok(lock_file)
     }
 }
 
