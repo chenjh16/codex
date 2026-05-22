@@ -661,6 +661,30 @@
           "type": "object"
         },
         {
+          "properties": {
+            "id": {
+              "$ref": "#/definitions/v2/RequestId"
+            },
+            "method": {
+              "enum": [
+                "thread/suggestNextPrompt"
+              ],
+              "title": "Thread/suggestNextPromptRequestMethod",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/definitions/v2/ThreadSuggestNextPromptParams"
+            }
+          },
+          "required": [
+            "id",
+            "method",
+            "params"
+          ],
+          "title": "Thread/suggestNextPromptRequest",
+          "type": "object"
+        },
+        {
           "description": "Append raw Responses API items to the thread history without starting a user turn.",
           "properties": {
             "id": {
@@ -17933,6 +17957,32 @@
           "threadId"
         ],
         "title": "ThreadStatusChangedNotification",
+        "type": "object"
+      },
+      "ThreadSuggestNextPromptParams": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "threadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "threadId"
+        ],
+        "title": "ThreadSuggestNextPromptParams",
+        "type": "object"
+      },
+      "ThreadSuggestNextPromptResponse": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "properties": {
+          "suggestion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "ThreadSuggestNextPromptResponse",
         "type": "object"
       },
       "ThreadTokenUsage": {

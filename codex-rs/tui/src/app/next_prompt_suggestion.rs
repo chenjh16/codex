@@ -1,13 +1,95 @@
-//! TUI interactions for already-generated next-prompt suggestions.
+//! TUI lifecycle for predicted next prompts.
 
 use super::*;
 
 impl App {
     pub(crate) fn clear_next_prompt_suggestion(&mut self) {
+        self.cancel_pending_next_prompt_suggestion();
         self.chat_widget.clear_next_prompt_suggestion();
     }
 
+    pub(super) fn request_next_prompt_suggestion(&mut self, app_server: &AppServerSession) {
+        let Some(thread_id) = self.current_displayed_thread_id() else {
+            tracing::debug!("skipping next prompt suggestion without displayed thread");
+            return;
+        };
+        self.request_next_prompt_suggestion_for_thread(app_server, thread_id);
+    }
+
+    pub(super) fn request_next_prompt_suggestion_for_thread(
+        &mut self,
+        app_server: &AppServerSession,
+        thread_id: ThreadId,
+    ) {
+        if self.chat_widget.side_conversation_active() {
+            tracing::debug!(%thread_id, "skipping next prompt suggestion for side conversation");
+            return;
+        }
+
+        self.cancel_pending_next_prompt_suggestion();
+        self.chat_widget.clear_next_prompt_suggestion();
+        self.next_prompt_suggestion_generation = self
+            .next_prompt_suggestion_generation
+            .saturating_add(/*rhs*/ 1);
+        let generation = self.next_prompt_suggestion_generation;
+        let request_handle = app_server.request_handle();
+        let app_event_tx = self.app_event_tx.clone();
+        self.pending_next_prompt_suggestion = Some(tokio::spawn(async move {
+            let requested_at = Instant::now();
+            let result =
+                super::background_requests::fetch_next_prompt_suggestion(request_handle, thread_id)
+                    .await
+                    .map_err(|err| format!("{err:#}"));
+            app_event_tx.send(AppEvent::NextPromptSuggestionReady {
+                generation,
+                thread_id,
+                latency_ms: u64::try_from(requested_at.elapsed().as_millis()).unwrap_or(u64::MAX),
+                result,
+            });
+        }));
+    }
+
+    pub(super) fn handle_next_prompt_suggestion_ready(
+        &mut self,
+        generation: u64,
+        thread_id: ThreadId,
+        latency_ms: u64,
+        result: Result<Option<String>, String>,
+    ) {
+        if generation != self.next_prompt_suggestion_generation
+            || self.current_displayed_thread_id() != Some(thread_id)
+        {
+            return;
+        }
+        self.pending_next_prompt_suggestion = None;
+        match result {
+            Ok(suggestion) => {
+                tracing::debug!(
+                    latency_ms = latency_ms,
+                    has_suggestion = suggestion.is_some(),
+                    "next prompt suggestion request finished"
+                );
+                self.chat_widget.set_next_prompt_suggestion(suggestion);
+            }
+            Err(err) => tracing::debug!(
+                latency_ms = latency_ms,
+                error = %err,
+                "next prompt suggestion request failed"
+            ),
+        }
+    }
+
+    pub(super) fn cancel_pending_next_prompt_suggestion(&mut self) {
+        if let Some(task) = self.pending_next_prompt_suggestion.take() {
+            task.abort();
+        }
+        self.next_prompt_suggestion_generation = self
+            .next_prompt_suggestion_generation
+            .saturating_add(/*rhs*/ 1);
+    }
+
     pub(crate) fn accept_next_prompt_suggestion(&mut self) -> bool {
+        self.cancel_pending_next_prompt_suggestion();
         let Some(suggestion) = self.chat_widget.take_next_prompt_suggestion() else {
             return false;
         };

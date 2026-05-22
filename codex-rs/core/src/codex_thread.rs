@@ -141,6 +141,10 @@ impl CodexThread {
         self.codex.shutdown_and_wait().await
     }
 
+    pub async fn suggest_next_prompt(&self) -> CodexResult<Option<String>> {
+        crate::next_prompt_suggestion::suggest_next_prompt(self.codex.session.as_ref()).await
+    }
+
     /// Wait until the underlying session loop has terminated.
     pub async fn wait_until_terminated(&self) {
         self.codex.session_loop_termination.clone().await;

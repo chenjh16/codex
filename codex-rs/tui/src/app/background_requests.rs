@@ -15,6 +15,8 @@ use codex_app_server_protocol::MarketplaceRemoveParams;
 use codex_app_server_protocol::MarketplaceRemoveResponse;
 use codex_app_server_protocol::MarketplaceUpgradeParams;
 use codex_app_server_protocol::MarketplaceUpgradeResponse;
+use codex_app_server_protocol::ThreadSuggestNextPromptParams;
+use codex_app_server_protocol::ThreadSuggestNextPromptResponse;
 
 use codex_app_server_protocol::RequestId;
 
@@ -22,6 +24,23 @@ use crate::hooks_rpc::fetch_hooks_list;
 use crate::hooks_rpc::write_hook_trust;
 use crate::hooks_rpc::write_hook_trusts;
 use codex_utils_absolute_path::AbsolutePathBuf;
+
+pub(super) async fn fetch_next_prompt_suggestion(
+    request_handle: AppServerRequestHandle,
+    thread_id: ThreadId,
+) -> Result<Option<String>> {
+    let request_id = RequestId::String(format!("next-prompt-suggestion-{}", Uuid::new_v4()));
+    let response: ThreadSuggestNextPromptResponse = request_handle
+        .request_typed(ClientRequest::ThreadSuggestNextPrompt {
+            request_id,
+            params: ThreadSuggestNextPromptParams {
+                thread_id: thread_id.to_string(),
+            },
+        })
+        .await
+        .wrap_err("thread/suggestNextPrompt failed in TUI")?;
+    Ok(response.suggestion)
+}
 
 impl App {
     pub(super) fn fetch_mcp_inventory(

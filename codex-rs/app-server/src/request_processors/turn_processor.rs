@@ -114,6 +114,15 @@ impl TurnRequestProcessor {
             .map(|response| Some(response.into()))
     }
 
+    pub(crate) async fn thread_suggest_next_prompt(
+        &self,
+        params: ThreadSuggestNextPromptParams,
+    ) -> Result<Option<ClientResponsePayload>, JSONRPCErrorError> {
+        self.thread_suggest_next_prompt_inner(params)
+            .await
+            .map(|response| Some(response.into()))
+    }
+
     pub(crate) async fn turn_steer(
         &self,
         request_id: &ConnectionRequestId,
@@ -666,6 +675,18 @@ impl TurnRequestProcessor {
         }
 
         Ok(ThreadSettingsUpdateResponse {})
+    }
+
+    async fn thread_suggest_next_prompt_inner(
+        &self,
+        params: ThreadSuggestNextPromptParams,
+    ) -> Result<ThreadSuggestNextPromptResponse, JSONRPCErrorError> {
+        let (_, thread) = self.load_thread(&params.thread_id).await?;
+        let suggestion = thread
+            .suggest_next_prompt()
+            .await
+            .map_err(|err| internal_error(format!("failed to suggest next prompt: {err}")))?;
+        Ok(ThreadSuggestNextPromptResponse { suggestion })
     }
 
     async fn thread_inject_items_response_inner(

@@ -585,6 +585,11 @@ client_request_definitions! {
         serialization: thread_id(params.thread_id),
         response: v2::ThreadReadResponse,
     },
+    ThreadSuggestNextPrompt => "thread/suggestNextPrompt" {
+        params: v2::ThreadSuggestNextPromptParams,
+        serialization: thread_id(params.thread_id),
+        response: v2::ThreadSuggestNextPromptResponse,
+    },
     #[experimental("thread/turns/list")]
     ThreadTurnsList => "thread/turns/list" {
         params: v2::ThreadTurnsListParams,

@@ -4018,6 +4018,8 @@ async fn make_test_app() -> App {
         pending_primary_events: VecDeque::new(),
         pending_app_server_requests: PendingAppServerRequests::default(),
         pending_startup_thread_start: false,
+        next_prompt_suggestion_generation: 0,
+        pending_next_prompt_suggestion: None,
         pending_plugin_enabled_writes: HashMap::new(),
         pending_hook_enabled_writes: HashMap::new(),
     }
@@ -4082,6 +4084,8 @@ async fn make_test_app_with_channels() -> (
             pending_primary_events: VecDeque::new(),
             pending_app_server_requests: PendingAppServerRequests::default(),
             pending_startup_thread_start: false,
+            next_prompt_suggestion_generation: 0,
+            pending_next_prompt_suggestion: None,
             pending_plugin_enabled_writes: HashMap::new(),
             pending_hook_enabled_writes: HashMap::new(),
         },
@@ -4397,6 +4401,39 @@ async fn visible_next_prompt_suggestion_returns_after_draft_is_cleared() {
     assert!(
         op_rx.try_recv().is_err(),
         "Tab acceptance should not submit"
+    );
+}
+
+#[tokio::test]
+async fn stale_next_prompt_suggestion_result_is_ignored() {
+    let mut app = make_test_app().await;
+    let thread_id = ThreadId::new();
+    app.active_thread_id = Some(thread_id);
+    app.next_prompt_suggestion_generation = 2;
+
+    app.handle_next_prompt_suggestion_ready(
+        /*generation*/ 1,
+        thread_id,
+        /*latency_ms*/ 0,
+        Ok(Some("run the tests".to_string())),
+    );
+
+    assert_eq!(app.chat_widget.next_prompt_suggestion(), None);
+}
+
+#[tokio::test]
+async fn typing_cancels_pending_next_prompt_suggestion_without_clearing_visible_suggestion() {
+    let mut app = make_test_app().await;
+    app.chat_widget
+        .set_next_prompt_suggestion(Some("run the tests".to_string()));
+    app.pending_next_prompt_suggestion = Some(tokio::spawn(std::future::pending()));
+
+    app.cancel_pending_next_prompt_suggestion();
+
+    assert!(app.pending_next_prompt_suggestion.is_none());
+    assert_eq!(
+        app.chat_widget.next_prompt_suggestion(),
+        Some("run the tests")
     );
 }
 
