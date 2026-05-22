@@ -203,7 +203,7 @@ where
 {
     let paths = Arg0DispatchPaths {
         codex_self_exe: current_exe.clone(),
-        codex_linux_sandbox_exe: if cfg!(target_os = "linux") {
+        codex_linux_sandbox_exe: if cfg!(all(target_os = "linux", not(target_env = "ohos"))) {
             linux_sandbox_exe_path(path_entry_guard.as_ref(), current_exe)
         } else {
             None

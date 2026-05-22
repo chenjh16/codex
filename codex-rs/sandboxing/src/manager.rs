@@ -1,6 +1,6 @@
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::bwrap::WSL1_BWRAP_WARNING;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::bwrap::is_wsl1;
 use crate::landlock::CODEX_LINUX_SANDBOX_ARG0;
 use crate::landlock::allow_network_for_proxy;
@@ -48,7 +48,7 @@ pub enum SandboxablePreference {
 pub fn get_platform_sandbox(windows_sandbox_enabled: bool) -> Option<SandboxType> {
     if cfg!(target_os = "macos") {
         Some(SandboxType::MacosSeatbelt)
-    } else if cfg!(target_os = "linux") {
+    } else if cfg!(all(target_os = "linux", not(target_env = "ohos"))) {
         Some(SandboxType::LinuxSeccomp)
     } else if cfg!(target_os = "windows") {
         if windows_sandbox_enabled {
@@ -106,7 +106,7 @@ pub struct SandboxTransformRequest<'a> {
 #[derive(Debug)]
 pub enum SandboxTransformError {
     MissingLinuxSandboxExecutable,
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     Wsl1UnsupportedForBubblewrap,
     #[cfg(not(target_os = "macos"))]
     SeatbeltUnavailable,
@@ -118,7 +118,7 @@ impl std::fmt::Display for SandboxTransformError {
             Self::MissingLinuxSandboxExecutable => {
                 write!(f, "missing codex-linux-sandbox executable path")
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             Self::Wsl1UnsupportedForBubblewrap => write!(f, "{WSL1_BWRAP_WARNING}"),
             #[cfg(not(target_os = "macos"))]
             Self::SeatbeltUnavailable => write!(f, "seatbelt sandbox is only available on macOS"),
@@ -218,7 +218,7 @@ impl SandboxManager {
                 let exe = codex_linux_sandbox_exe
                     .ok_or(SandboxTransformError::MissingLinuxSandboxExecutable)?;
                 let allow_proxy_network = allow_network_for_proxy(enforce_managed_network);
-                #[cfg(target_os = "linux")]
+                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
                 ensure_linux_bubblewrap_is_supported(
                     &effective_file_system_policy,
                     use_legacy_landlock,
@@ -304,7 +304,7 @@ fn compatibility_workspace_write_policy(
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 fn ensure_linux_bubblewrap_is_supported(
     file_system_sandbox_policy: &FileSystemSandboxPolicy,
     use_legacy_landlock: bool,

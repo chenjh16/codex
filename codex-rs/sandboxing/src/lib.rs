@@ -1,4 +1,4 @@
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 mod bwrap;
 pub mod landlock;
 mod manager;
@@ -6,9 +6,14 @@ pub mod policy_transforms;
 #[cfg(target_os = "macos")]
 pub mod seatbelt;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub use bwrap::find_system_bwrap_in_path;
-#[cfg(target_os = "linux")]
+
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
+pub fn find_system_bwrap_in_path() -> Option<std::path::PathBuf> {
+    None
+}
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 pub use bwrap::system_bwrap_warning;
 pub use manager::SandboxCommand;
 pub use manager::SandboxExecRequest;
@@ -22,7 +27,7 @@ pub use manager::get_platform_sandbox;
 
 use codex_protocol::error::CodexErr;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(target_env = "ohos"))))]
 pub fn system_bwrap_warning(
     _permission_profile: &codex_protocol::models::PermissionProfile,
 ) -> Option<String> {
@@ -35,7 +40,7 @@ impl From<SandboxTransformError> for CodexErr {
             SandboxTransformError::MissingLinuxSandboxExecutable => {
                 CodexErr::LandlockSandboxExecutableNotProvided
             }
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             SandboxTransformError::Wsl1UnsupportedForBubblewrap => {
                 CodexErr::UnsupportedOperation(crate::bwrap::WSL1_BWRAP_WARNING.to_string())
             }
