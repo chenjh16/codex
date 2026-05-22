@@ -1,6 +1,14 @@
 mod description;
 mod response;
+#[cfg(not(target_env = "ohos"))]
 mod runtime;
+#[cfg(target_env = "ohos")]
+#[path = "runtime/ohos_stub.rs"]
+mod runtime;
+#[cfg(not(target_env = "ohos"))]
+mod service;
+#[cfg(target_env = "ohos")]
+#[path = "service_ohos_stub.rs"]
 mod service;
 
 pub use description::CODE_MODE_PRAGMA_PREFIX;
