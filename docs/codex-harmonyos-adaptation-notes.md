@@ -282,7 +282,7 @@ no-compile-smoke failures=0
 - Agent identity probe 已覆盖 `CODEX_ACCESS_TOKEN` 缺失/存在性和 `exec-server --remote ... --use-agent-identity-auth` 的显式错误路径，日志未暴露 bearer secret。
 - 跨进程多 Agent 恢复通过：seed 进程创建并关闭 child 后，新进程 `codex exec resume <parent>` 调用 `resume_agent <child>`，返回 `CROSS_PROCESS_RESUME_OK CROSS_PROCESS_CHILD_RESUMED`。
 
-下一步真正需要外部状态的是正向认证链路：ChatGPT login、GitHub connector tool invocation、cloud task、真实 Agent identity JWT、remote-control connected 状态。
+下一步不再把 ChatGPT login 作为 Agent 能力前置。HarmonyOS PC 主路径是三方 API，因此优先补 Code Mode 策略、app-server/exec-server 本地 ws 生命周期、GUI/browser 实机能力和通用 MCP/skill/plugin 深化；ChatGPT login、GitHub connector tool invocation、cloud task、真实 Agent identity JWT、remote-control connected 状态均后置为官方服务/官方客户端增强项。
 
 验证：
 
@@ -736,17 +736,17 @@ logs=/storage/Users/currentUser/Claude/codex-ohos/logs/smoke/20260523-2210-agent
 
 - 当前 Codex 源码已具备多层 Agent 能力：单 Agent CLI/TUI、工具运行时、MCP client/server、plugin/skill discovery、多 Agent spawn/send/wait/close/resume、Agent graph store、Agent identity、app-server/remote-control、exec-server、cloud task 和 Code Mode。
 - HarmonyOS 当前已经验证单 Agent CLI/TUI 主链路，并完成多 Agent v1 最小链路、并发子 Agent、`SendInput`、`resume_agent` 探针、跨进程 parent resume 后恢复 closed child、SQLite/rollout graph 证据、MCP add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP、本地 stdio MCP tool/resource、`mcp-server tools/call codex`、MCP approval elicitation、MCP OAuth probe、plugin marketplace/install/skill 暴露、repo-local skill 模型侧调用、app-server/exec-server ws JSON-RPC、remote-control standalone layout probe、Agent identity token probe、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 的专项 smoke。
-- 仍未完成的是需要真实外部认证或服务 token 的正向链路：ChatGPT login、GitHub connector auth/tool invocation、cloud task、真实 Agent identity JWT、remote-control connected 状态，以及 SSH 环境外的本机 GUI/浏览器插件能力。
+- 仍未完成但与三方 API 主路径强相关的是 Code Mode 长期策略、本机 GUI/浏览器插件实机能力、app-server/exec-server ws 生命周期继续固化、通用 MCP/skill/plugin 深化。需要真实外部认证或官方服务 token 的 ChatGPT login、GitHub connector auth/tool invocation、cloud task、真实 Agent identity JWT、remote-control connected 状态后置为官方服务/官方客户端增强项。
 - Code Mode 是明确功能缺失：OHOS build 使用 stub，返回 `Code Mode is unavailable in this HarmonyOS build because rusty_v8 has no aarch64-unknown-linux-ohos prebuilt archive.`。
 - Linux sandbox 已按 OHOS 适配主动降级，避免误探测 bubblewrap；因此 HarmonyOS 上不能宣称具备普通 Linux 的 bwrap/seccomp sandbox 安全边界。显式 `codex sandbox linux` 子命令仍会 panic 为 `codex-linux-sandbox executable not found`，后续应改成 OHOS unsupported 提示。
 - 详细分析见 `docs/codex-agent-capability-analysis.md`。
 
 ## 2026-05-24 剩余 Agent 能力工作计划补充
 
-- 已新增 `docs/codex-agent-next-capability-workplan.md`，把剩余目标拆成 6 个可执行验收项：ChatGPT/GitHub connector 正向认证与真实 tool invocation、cloud task 正向链路、真实 Agent Identity JWT、remote-control connected 状态、GUI/浏览器插件实机能力、Code Mode 长期策略。
-- connector 项的关键不是 GitHub plugin 可见，也不是 shell/`gh` 可用，而是 ChatGPT 登录态下模型确实发起 GitHub connector tool call，并能用独立方式核验只读结果。
-- cloud task 项需要覆盖 create/register、list/status/log、diff、apply 或等价闭环，优先用临时文件避免副作用。
-- Agent Identity 项需要真实短期 JWT、claims 脱敏审计、JWKS 验签，以及 exec-server remote 或 cloud task 的正向认证调用。
-- remote-control 项当前已经越过 standalone layout blocker，下一步集中在 OHOS pid start time、`/proc` 元数据和 ws connected 生命周期。
+- 已更新 `docs/codex-agent-next-capability-workplan.md`，按“三方 API 主路径优先”重排剩余目标：P0 为 Code Mode 策略、app-server/exec-server 本地 ws 生命周期、GUI/browser 实机能力；P1 为通用 MCP/skill/plugin 深化；P2 为官方服务/官方客户端增强项。
+- connector 项的关键不是 GitHub plugin 可见，也不是 shell/`gh` 可用，而是 ChatGPT 登录态下模型确实发起 GitHub connector tool call，并能用独立方式核验只读结果；但它已降为最低优先级。
+- cloud task 项需要覆盖 create/register、list/status/log、diff、apply 或等价闭环，优先用临时文件避免副作用；但它属于官方服务链路，不阻塞三方 API 主路径。
+- Agent Identity 项需要真实短期 JWT、claims 脱敏审计、JWKS 验签，以及 exec-server remote 或 cloud task 的正向认证调用；它同样是官方服务增强项。
+- remote-control 当前已经越过 standalone layout blocker，但源码文档显示标准 bootstrap 依赖 `https://chatgpt.com/codex/install.sh` 管理的 standalone install，面向 desktop/mobile remote clients，因此 connected 状态后置为官方远控生态验收。
 - GUI/browser 项必须区分 SSH headless 与本机 GUI session；只有真实导航、截图、点击或桌面输入成功后才能宣称可用。
 - Code Mode 项短期继续 stub 防误判；中期先评估外部 JS runtime bridge 或替代 runtime；V8/rusty_v8 源码构建放在确认必要之后。

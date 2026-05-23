@@ -6,9 +6,9 @@
 
 当前 HarmonyOS PC 上的 Codex CLI 主链路已经可用：release build 成功、最终二进制已签名、`codex --version` / `codex --help` / bundled models 通过，非交互 `codex exec` 和 TUI 两轮真实模型交互通过，并已安装到 `/storage/Users/currentUser/.local/bin/codex`。
 
-从源码结构看，当前 Codex 已经不只是单 Agent CLI。它包含单会话执行、工具运行时、MCP client/server、插件和 skill 发现、多 Agent 协作、Agent graph 持久化、Agent identity、app-server/remote-control、cloud task 和 Code Mode 等多层能力。HarmonyOS 适配目前已经验证到 CLI 和 TUI 的核心使用闭环，并固化了无编译 Agent 能力 smoke：多 Agent v1 最小链路、`SendInput`、并发子 Agent、`resume_agent`、跨进程 parent/child graph 恢复、SQLite/rollout graph 证据、MCP client/server、`mcp-server tools/call codex`、本地 stdio MCP tool/resource、真实 DeepWiki streamable HTTP MCP、MCP tool approval elicitation、MCP OAuth probe、plugin/skill 发现与 repo-local skill 模型侧调用、app-server/exec-server ws JSON-RPC、remote-control standalone layout probe、Agent identity token probe、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 都有实测结果。但 Code Mode 在 OHOS 上仍为 stub，Linux sandbox 被有意禁用，真实 ChatGPT 登录态下的 connector/cloud/Agent identity 正向链路和 GUI/浏览器插件仍未完成验收。
+从源码结构看，当前 Codex 已经不只是单 Agent CLI。它包含单会话执行、工具运行时、MCP client/server、插件和 skill 发现、多 Agent 协作、Agent graph 持久化、Agent identity、app-server/remote-control、cloud task 和 Code Mode 等多层能力。HarmonyOS 适配目前已经验证到 CLI 和 TUI 的核心使用闭环，并固化了无编译 Agent 能力 smoke：多 Agent v1 最小链路、`SendInput`、并发子 Agent、`resume_agent`、跨进程 parent/child graph 恢复、SQLite/rollout graph 证据、MCP client/server、`mcp-server tools/call codex`、本地 stdio MCP tool/resource、真实 DeepWiki streamable HTTP MCP、MCP tool approval elicitation、MCP OAuth probe、plugin/skill 发现与 repo-local skill 模型侧调用、app-server/exec-server ws JSON-RPC、remote-control standalone layout probe、Agent identity token probe、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 都有实测结果。但 Code Mode 在 OHOS 上仍为 stub，Linux sandbox 被有意禁用，GUI/浏览器插件仍未完成实机验收。由于 HarmonyOS PC 主使用路径是三方 API，真实 ChatGPT 登录态下的 connector/cloud/Agent identity/remote-control connected 现在归类为官方服务增强项，而不是 Agent 能力完整性的前置条件。
 
-结论：当前安装版 Codex 可作为 HarmonyOS PC 上的交互式和非交互式主力 CLI 使用；多 Agent、MCP、plugin/skill、app-server/exec-server 的核心非 GUI 路径已有可用证据。若要称为完整 Agent runtime，还需要补齐真实 ChatGPT/connector/cloud/Agent identity 正向认证能力、GUI 能力，以及 Code Mode 的长期策略。
+结论：当前安装版 Codex 可作为 HarmonyOS PC 上的交互式和非交互式主力 CLI 使用；多 Agent、MCP、plugin/skill、app-server/exec-server 的核心非 GUI 路径已有可用证据。若按三方 API 主路径评估，下一步最重要的是 Code Mode 策略、app-server/exec-server 本地 ws 生命周期、通用 MCP/skill/plugin 深化和 GUI/browser 实机能力；ChatGPT/connector/cloud/Agent identity/remote-control connected 是官方服务增强项，放到后置验证。
 
 ## 当前已验证状态
 
@@ -146,11 +146,11 @@ Code Mode 在非 OHOS 构建中承载 JS orchestration、nested tool call、`exe
 4. MCP client/server 已完成基础、tool、resource、真实 DeepWiki、approval elicitation 和 OAuth probe。
    影响：stdio add/list/remove、Codex MCP server newline JSON-RPC、`tools/call codex`、本地 stdio MCP tool/resource、真实 DeepWiki streamable HTTP MCP、app-server `mcpServer/elicitation/request` 均已通过；authenticated streamable HTTP 正向登录态、approval UI 展示和错误 UI 仍未覆盖。
 
-5. Plugin / skill 基础和 repo-local skill 模型侧调用可用，connector 正向调用仍需真实登录态。
-   影响：插件 marketplace、安装、skill 暴露、repo-local skill 注入、app-server plugin/app/auth inventory 已通过；未登录 ChatGPT 时 remote plugin catalog 明确要求认证。外部 connector auth/tool invocation、Agent config migration、request-plugin-install 可能受 PATH、网络、文件权限、代理和 ChatGPT connector 授权影响。
+5. Plugin / skill 基础和 repo-local skill 模型侧调用可用，官方 connector 正向调用后置。
+   影响：插件 marketplace、安装、skill 暴露、repo-local skill 注入、app-server plugin/app/auth inventory 已通过；未登录 ChatGPT 时 remote plugin catalog 明确要求认证。对三方 API 主路径，更重要的是继续验收 request-plugin-install、tool search、external agent config migration、本地或非 ChatGPT connector-like workflow；GitHub connector auth/tool invocation 属官方服务增强项。
 
-6. App server / exec-server ws 基础协议可用，remote-control 已越过 standalone layout 阻塞但未 connected。
-   影响：ws handshake、最小 JSON-RPC 和 exec-server stdio 已有证据；Unix socket 在 Python 原生 bind 层即 EPERM；隔离 standalone layout 已能让 daemon start 进入 pid/socket/backend 阶段，后续要调查 OHOS pid start time、Unix socket 和 remote-control connected 状态。
+6. App server / exec-server ws 基础协议可用，remote-control connected 后置为官方远控增强项。
+   影响：ws handshake、最小 JSON-RPC 和 exec-server stdio 已有证据；Unix socket 在 Python 原生 bind 层即 EPERM；三方 API 主路径优先固化 app-server/exec-server ws 生命周期。隔离 standalone layout 已能让 remote-control daemon start 进入 pid/socket/backend 阶段，但源码文档标准 bootstrap 依赖 `https://chatgpt.com/codex/install.sh` 管理的 standalone install，connected 状态应归入官方远控/ChatGPT 客户端生态验收。
 
 7. Cloud task 与 Agent identity 正向未验收。
    影响：`AgentAssertion`、task registration、JWKS、ChatGPT auth、cloud task apply 等服务型 Agent 能力尚不能宣称可用；缺失/存在性 token probe 和无泄漏检查已进入 smoke。
@@ -158,8 +158,8 @@ Code Mode 在非 OHOS 构建中承载 JS orchestration、nested tool call、`exe
 8. 浏览器/桌面/GUI 类插件不适合默认视为可用。
    影响：当前验证环境是 SSH 到 HarmonyOS PC；没有验证本机 GUI 自动化、浏览器控制或桌面插件能力。
 
-9. 自动化 harness 已覆盖本轮 Agent 优先项，但正向认证链路仍需凭据。
-   影响：当前无编译 smoke 已进入 `~/Claude/codex-ohos/scripts`，并补齐多 Agent v1 resume/concurrency/cross-process、MCP stdio resource/tool/approval/OAuth probe、skill invocation、ws JSON-RPC、remote-control layout 和 Agent identity token probe；仍需补真实 ChatGPT login、GitHub connector 正向调用、cloud task 正向和真实 Agent identity JWT。
+9. 自动化 harness 已覆盖本轮 Agent 优先项，后续应按三方 API 主路径重排。
+   影响：当前无编译 smoke 已进入 `~/Claude/codex-ohos/scripts`，并补齐多 Agent v1 resume/concurrency/cross-process、MCP stdio resource/tool/approval/OAuth probe、skill invocation、ws JSON-RPC、remote-control layout 和 Agent identity token probe；下一批优先补 Code Mode 策略 PoC、app-server/exec-server ws 生命周期、GUI/browser 实机、MCP/skill/plugin 深化。真实 ChatGPT login、GitHub connector 正向调用、cloud task、真实 Agent identity JWT 和 remote-control connected 均为后置官方服务增强项。
 
 ## 建议路线图
 
@@ -205,14 +205,13 @@ Code Mode 在非 OHOS 构建中承载 JS orchestration、nested tool call、`exe
 
 ### P1/P2：剩余 Agent 能力补齐计划
 
-详细执行计划已单独整理到 `docs/codex-agent-next-capability-workplan.md`。后续不再只用“真实认证链路”笼统描述，而是按以下 6 个目标验收：
+详细执行计划已单独整理到 `docs/codex-agent-next-capability-workplan.md`。后续不再只用“真实认证链路”笼统描述，而是按“三方 API 主路径优先”拆分验收：
 
-- ChatGPT / GitHub connector 正向认证与 tool invocation：建立真实 ChatGPT 登录态、完成 GitHub connector 授权、让模型执行只读 GitHub connector tool，并证明不是 shell、`gh` 或 curl 退路。
-- Cloud task 正向链路：覆盖 task create/register、list/status/log、diff、apply 或等价流程，用临时文件验证补丁应用和错误恢复。
-- 真实 Agent Identity JWT：临时注入短期 token，脱敏解码 claims，JWKS 验签，并完成 exec-server remote 或 cloud task 的 identity auth 正向调用。
-- remote-control connected 状态：调查 OHOS pid start time、`/proc` 和 socket 行为差异，优先走 ws transport，完成 start/status/connected/stop 生命周期。
-- GUI / 浏览器插件实机能力：区分 SSH headless 与本机 GUI session，验证浏览器导航/截图/点击和桌面截图/输入。
 - Code Mode 长期策略：短期保留 stub 并防误判；中期评估替代 JS runtime 或外部 bridge；长期只有在确认必要后再投入 rusty_v8/V8 源码构建。
+- app-server / exec-server 本地 ws 生命周期：继续固化 ws JSON-RPC、stdio、MCP resource/read、approval elicitation 和清理逻辑。
+- GUI / 浏览器插件实机能力：区分 SSH headless 与本机 GUI session，验证浏览器导航/截图/点击和桌面截图/输入。
+- 通用 MCP / skill / plugin 能力深化：继续用三方 API provider 验收非 ChatGPT tool discovery、approval UI、resource、参数化 skill 调用。
+- 官方服务增强项：ChatGPT/GitHub connector、cloud task、真实 Agent Identity JWT、remote-control connected 均后置。
 
 ### P2：sandbox 和服务型能力
 
@@ -247,4 +246,4 @@ ssh -p 22222 -o BatchMode=yes -o StrictHostKeyChecking=no chenjh@localhost \
 
 ## 结论
 
-HarmonyOS 版 Codex 当前已经完成“可安装、可启动、可交互、可调用模型、可使用基础工具”的主目标，并已把 Agent 专项验收推进到多 Agent v1 resume/concurrency/cross-process、MCP stdio tool/resource/DeepWiki/approval/OAuth probe、plugin/skill 模型侧调用、app-server/exec-server ws JSON-RPC、remote-control layout、Agent identity token probe、TUI `/agent` picker 和跨进程 `resume --last --include-non-interactive`。下一阶段应继续补齐需要真实认证的 Agent runtime 正向链路：ChatGPT login、GitHub connector tool invocation、cloud task、真实 Agent identity JWT 和 remote-control connected 状态。Code Mode 是当前唯一明确的编译期功能缺失；sandbox 则应在 Agent 关键链路稳定后再做长期隔离策略。
+HarmonyOS 版 Codex 当前已经完成“可安装、可启动、可交互、可调用模型、可使用基础工具”的主目标，并已把 Agent 专项验收推进到多 Agent v1 resume/concurrency/cross-process、MCP stdio tool/resource/DeepWiki/approval/OAuth probe、plugin/skill 模型侧调用、app-server/exec-server ws JSON-RPC、remote-control layout、Agent identity token probe、TUI `/agent` picker 和跨进程 `resume --last --include-non-interactive`。下一阶段应按三方 API 主路径优先：Code Mode 策略、app-server/exec-server ws 生命周期、GUI/browser 实机能力、通用 MCP/skill/plugin 深化。ChatGPT login、GitHub connector tool invocation、cloud task、真实 Agent identity JWT 和 remote-control connected 状态均后置为官方服务/官方客户端增强项；sandbox 则应在 Agent 关键链路稳定后再做长期隔离策略。
