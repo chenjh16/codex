@@ -144,7 +144,8 @@ CODEX_OHOS_SMOKE_RUN_ID=20260523-1905-full \
 3. 用户目录安装已完成，推荐日常入口是 `/storage/Users/currentUser/.local/bin/codex`。保留 `~/Claude/codex-ohos/bin/codex` 作为工程辅助 wrapper。
 4. 后续如需把 TUI e2e 固化为脚本，应复用内存型 PTY harness 思路，避免 `expect log_file` 记录 `send` 的 key。当前会话中曾因错误 harness 暴露测试 key，建议轮换后再长期使用。
 5. Agent 能力专项 smoke 已扩展并脚本化：多 Agent v1 最小链路、并发、`SendInput`、`resume_agent`、跨进程恢复和 graph 证据，MCP add/list/remove、Codex MCP server newline JSON-RPC、`tools/call codex`、本地 stdio MCP tool/resource、真实 DeepWiki streamable HTTP MCP、MCP approval elicitation、MCP OAuth probe、plugin marketplace/install/visibility、repo-local skill 模型侧调用、app-server/exec-server ws JSON-RPC、remote-control standalone layout probe、Agent identity token probe、TUI `/agent` picker、`resume --last --include-non-interactive` 均有结果。下一阶段重点转为补齐需要真实登录态/服务 token 的正向链路：GitHub connector tool invocation、cloud task、真实 Agent identity JWT、remote-control connected 状态。
-6. Code Mode 当前在 OHOS 上不可用；短期策略是显式保留 stub 并防止误判为 shell exec 成功。若后续要补齐完整 Agent runtime，需要单独决策 rusty_v8 源码构建、替代 JS runtime，或外部 JS runtime 桥接。`codex sandbox linux` 显式子命令也需要从 panic 改成 OHOS unsupported 提示，但安全入口优先级低于 Agent 能力链路。
+6. 剩余 Agent 能力已拆成可执行工作计划，见 `docs/codex-agent-next-capability-workplan.md`。该计划分别定义 ChatGPT/GitHub connector 正向认证与真实 tool invocation、cloud task 正向链路、真实 Agent Identity JWT、remote-control connected 状态、GUI/浏览器插件实机能力、Code Mode 长期策略的前置条件、验收动作、成功标准和可能改动。
+7. Code Mode 当前在 OHOS 上不可用；短期策略是显式保留 stub 并防止误判为 shell exec 成功。若后续要补齐完整 Agent runtime，需要先评估替代 JS runtime 或外部 JS runtime bridge，再决定是否投入 rusty_v8/V8 源码构建。`codex sandbox linux` 显式子命令也需要从 panic 改成 OHOS unsupported 提示，但安全入口优先级低于 Agent 能力链路。
 
 ## TUI Adaptation Plan
 

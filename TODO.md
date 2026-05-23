@@ -216,8 +216,13 @@ REMOTE
 
 1. 后续每次构建后优先跑 `~/Claude/codex-ohos/scripts/run-no-compile-smoke.zsh`，再决定是否需要进入长编译。
 2. 当前会话中曾因错误 harness 暴露过测试 key；建议轮换该 key 后再长期使用。
-3. 下一轮优先做需要真实 ChatGPT 登录或真实服务 token 的正向链路：GitHub connector auth/tool invocation、cloud task list/exec/status/diff/apply、Agent identity JWT 正向注册、remote-control connected 状态。
-4. Code Mode 当前在 OHOS 上为 stub；短期策略是显式降级并防止误判为 shell exec 成功。若要补齐，需要评估 rusty_v8 源码构建、替代 JS runtime，或外部 JS runtime 桥接。
+3. 下一轮优先做需要真实 ChatGPT 登录或真实服务 token 的正向链路。详细拆解见 `docs/codex-agent-next-capability-workplan.md`：
+   - ChatGPT / GitHub connector 正向认证与真实 tool invocation：建立 ChatGPT 登录态、完成 GitHub connector 授权、让模型执行一次只读 GitHub connector tool，并证明不是 shell/`gh`/curl 退路。
+   - Cloud task 正向链路：覆盖 task create/register、list/status/log、diff、apply 或等价闭环，使用临时文件验证补丁应用。
+   - 真实 Agent Identity JWT：临时注入短期 token，脱敏解码 claims，JWKS 验签，并跑通 exec-server remote 或 cloud task 的 identity auth。
+   - remote-control connected 状态：调查 OHOS pid start time / `/proc` 差异，使用 ws 作为优先 transport，完成 start/status/connected/stop 生命周期。
+   - GUI / 浏览器插件实机能力：区分 SSH headless 和本机 GUI session，验证浏览器导航/截图/点击和桌面截图/输入。
+4. Code Mode 当前在 OHOS 上为 stub；短期策略是显式降级并防止误判为 shell exec 成功。长期策略先评估替代 JS runtime 或外部 bridge，再决定是否投入 rusty_v8/V8 源码构建。
 5. `codex sandbox linux` graceful unsupported 属安全/平台入口问题，仍建议后续修复，但优先级低于 Agent 能力闭环。
 
 ## TUI 自动化注意事项

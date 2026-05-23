@@ -203,6 +203,17 @@ Code Mode 在非 OHOS 构建中承载 JS orchestration、nested tool call、`exe
 - 尝试从源码构建 V8/rusty_v8，评估构建时长、签名、ICU、链接器和产物体积。
 - 设计轻量替代 runtime，只支持安全子集或外部 Node/DevNode，但需要解决 `--jitless`、权限和 sandbox 问题。
 
+### P1/P2：剩余 Agent 能力补齐计划
+
+详细执行计划已单独整理到 `docs/codex-agent-next-capability-workplan.md`。后续不再只用“真实认证链路”笼统描述，而是按以下 6 个目标验收：
+
+- ChatGPT / GitHub connector 正向认证与 tool invocation：建立真实 ChatGPT 登录态、完成 GitHub connector 授权、让模型执行只读 GitHub connector tool，并证明不是 shell、`gh` 或 curl 退路。
+- Cloud task 正向链路：覆盖 task create/register、list/status/log、diff、apply 或等价流程，用临时文件验证补丁应用和错误恢复。
+- 真实 Agent Identity JWT：临时注入短期 token，脱敏解码 claims，JWKS 验签，并完成 exec-server remote 或 cloud task 的 identity auth 正向调用。
+- remote-control connected 状态：调查 OHOS pid start time、`/proc` 和 socket 行为差异，优先走 ws transport，完成 start/status/connected/stop 生命周期。
+- GUI / 浏览器插件实机能力：区分 SSH headless 与本机 GUI session，验证浏览器导航/截图/点击和桌面截图/输入。
+- Code Mode 长期策略：短期保留 stub 并防误判；中期评估替代 JS runtime 或外部 bridge；长期只有在确认必要后再投入 rusty_v8/V8 源码构建。
+
 ### P2：sandbox 和服务型能力
 
 - 梳理 OHOS 可用的进程隔离、权限模型和文件系统限制，明确是否能提供等价于 LinuxSeccomp/bwrap 的 sandbox profile。

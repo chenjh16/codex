@@ -740,3 +740,13 @@ logs=/storage/Users/currentUser/Claude/codex-ohos/logs/smoke/20260523-2210-agent
 - Code Mode 是明确功能缺失：OHOS build 使用 stub，返回 `Code Mode is unavailable in this HarmonyOS build because rusty_v8 has no aarch64-unknown-linux-ohos prebuilt archive.`。
 - Linux sandbox 已按 OHOS 适配主动降级，避免误探测 bubblewrap；因此 HarmonyOS 上不能宣称具备普通 Linux 的 bwrap/seccomp sandbox 安全边界。显式 `codex sandbox linux` 子命令仍会 panic 为 `codex-linux-sandbox executable not found`，后续应改成 OHOS unsupported 提示。
 - 详细分析见 `docs/codex-agent-capability-analysis.md`。
+
+## 2026-05-24 剩余 Agent 能力工作计划补充
+
+- 已新增 `docs/codex-agent-next-capability-workplan.md`，把剩余目标拆成 6 个可执行验收项：ChatGPT/GitHub connector 正向认证与真实 tool invocation、cloud task 正向链路、真实 Agent Identity JWT、remote-control connected 状态、GUI/浏览器插件实机能力、Code Mode 长期策略。
+- connector 项的关键不是 GitHub plugin 可见，也不是 shell/`gh` 可用，而是 ChatGPT 登录态下模型确实发起 GitHub connector tool call，并能用独立方式核验只读结果。
+- cloud task 项需要覆盖 create/register、list/status/log、diff、apply 或等价闭环，优先用临时文件避免副作用。
+- Agent Identity 项需要真实短期 JWT、claims 脱敏审计、JWKS 验签，以及 exec-server remote 或 cloud task 的正向认证调用。
+- remote-control 项当前已经越过 standalone layout blocker，下一步集中在 OHOS pid start time、`/proc` 元数据和 ws connected 生命周期。
+- GUI/browser 项必须区分 SSH headless 与本机 GUI session；只有真实导航、截图、点击或桌面输入成功后才能宣称可用。
+- Code Mode 项短期继续 stub 防误判；中期先评估外部 JS runtime bridge 或替代 runtime；V8/rusty_v8 源码构建放在确认必要之后。
