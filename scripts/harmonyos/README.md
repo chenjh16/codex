@@ -20,7 +20,23 @@ The scripts expect:
 Important: `~/.local/bin/codex` forces `CODEX_HOME="$HOME/.codex"`. Tests that
 need an isolated `CODEX_HOME` call the signed release binary directly.
 
-Latest known full pass:
+Latest full pass:
+
+```text
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2210-agent-full
+no-compile-smoke failures=0
+```
+
+Expanded Agent suite targeted passes:
+
+```text
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2145-multi-agent-v2  failures=0
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2145-mcp-v2          failures=0
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2145-plugin-v2       failures=0
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2130-app-exec        failures=0
+```
+
+Previous full pass before the expanded suite:
 
 ```text
 CODEX_OHOS_SMOKE_RUN_ID=20260523-1905-full

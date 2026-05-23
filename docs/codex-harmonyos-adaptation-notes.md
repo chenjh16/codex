@@ -643,10 +643,10 @@ Codex MCP server 通过：
 
 - `00-baseline-secret-scan.zsh`：安装入口、`--version`、`--help`、bundled models、feature list、真实 config secret/MCP 污染扫描。
 - `01-code-mode-only.zsh`：使用 `--enable code_mode --enable code_mode_only` 验证 OHOS Code Mode 明确返回 stub 提示，防止把 shell exec 误判为 Code Mode 成功。
-- `02-multi-agent-smoke.zsh`：验证 `spawn_agent`、`wait_agent`、`close_agent` 和 `SendInput`。
-- `03-mcp-smoke.zsh`：验证 `mcp add/list/remove`、`mcp-server tools/list`、真实 DeepWiki MCP、`mcp-server tools/call codex`。
-- `04-plugin-smoke.zsh`：验证真实安装环境中的 marketplace、GitHub plugin installed/enabled、prompt-input skills 暴露和模型侧可见性。
-- `05-app-exec-server-smoke.zsh`：验证 Python `AF_UNIX bind()`、app-server Unix socket、app-server ws handshake、exec-server ws handshake、exec-server stdio。
+- `02-multi-agent-smoke.zsh`：验证 v1 `spawn_agent`、`wait_agent`、`close_agent`、`SendInput`、并发子 Agent、`resume_agent` 探针，以及 SQLite/rollout graph 证据。
+- `03-mcp-smoke.zsh`：验证 `mcp add/list/remove`、本地 stdio MCP tool/resource、app-server MCP resource read、`mcp-server tools/list`、真实 DeepWiki MCP、`mcp-server tools/call codex`。
+- `04-plugin-smoke.zsh`：验证真实安装环境中的 marketplace、GitHub plugin installed/enabled、prompt-input skills 暴露、repo-local skill 暴露和模型侧 skill 调用。
+- `05-app-exec-server-smoke.zsh`：验证 Python `AF_UNIX bind()`、app-server Unix socket、app-server ws handshake、app-server ws JSON-RPC、exec-server ws handshake、exec-server ws JSON-RPC、exec-server stdio。
 - `06-cloud-auth-gui-probe.zsh`：验证 login/cloud/Agent identity token 缺失路径和 SSH GUI/browser tool 暴露状态。
 - `07-tui-resume-smoke.zsh`：用内存 PTY 验证隔离 `resume --last --include-non-interactive` 和 TUI `/agent` picker。
 
@@ -669,6 +669,36 @@ logs=/storage/Users/currentUser/Claude/codex-ohos/logs/smoke/20260523-1905-full
 - `~/.local/bin/codex` wrapper 会强制设置 `CODEX_HOME="$HOME/.codex"`。所有需要隔离 `CODEX_HOME` 的 smoke 必须直接调用已签名 release binary：`~/Claude/codex-openai/codex-rs/target/release/codex`。
 - `timeout` 可能留下 app-server/exec-server 子进程，脚本已补按端口匹配的清理逻辑。本轮最终已清理遗留 smoke 进程。
 
+## 2026-05-23 Agent 能力扩展 smoke
+
+按“Agent 能力优先，安全/沙箱后置”的原则，继续扩展无需重新编译的验收脚本。
+
+已通过分项：
+
+```text
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2145-multi-agent-v2 failures=0
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2145-mcp-v2 failures=0
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2145-plugin-v2 failures=0
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2130-app-exec failures=0
+```
+
+整套总入口也已通过：
+
+```text
+CODEX_OHOS_SMOKE_RUN_ID=20260523-2210-agent-full
+no-compile-smoke failures=0
+logs=/storage/Users/currentUser/Claude/codex-ohos/logs/smoke/20260523-2210-agent-full
+```
+
+新增结论：
+
+- 多 Agent 的 `resume_agent` 只在 v1 工具面明确存在，因此脚本使用 `--enable multi_agent --disable multi_agent_v2` 强制验收 v1。并发子 Agent、`SendInput`、`resume_agent` 探针均通过。
+- 多 Agent graph 持久化证据在 `CODEX_HOME/state_5.sqlite` 的 `thread_spawn_edges` 表和 rollout 事件里；脚本已读取 SQLite 与 rollout，避免只靠最终自然语言回答判断。
+- MCP stdio 当前实现是 newline-delimited JSON，不是 `Content-Length` framing。脚本新增本地 Python stdio MCP server，Codex 可调用 `echo_token` 工具并通过 app-server `mcpServer/resource/read` 读到 `OHOS_LOCAL_MCP_RESOURCE_OK`。
+- Plugin/skill 的真实调用不能只看 plugin list；脚本新增 repo-local `ohos-smoke-skill`，先用 `debug prompt-input` 验证可见，再用模型侧执行固定 token 验证 skill 注入生效。
+- app-server/exec-server 的 ws 模式已从“只握手”升级为“握手后发送最小 JSON-RPC 请求并收到响应”。Unix socket 仍在 Python 原生 `AF_UNIX bind()` 层报 `Operation not permitted`，后续服务型适配应优先走 ws 模式。
+- Code Mode 短期策略保持明确降级：`--enable code_mode --enable code_mode_only` 必须返回 OHOS rusty_v8 stub，不允许把普通 shell exec 误判为 Code Mode 成功。V8/rusty_v8 源码构建应放在确认必要之后。
+
 ## 2026-05-23 最终配置审计结果
 
 - 最终审计发现远端 `~/.codex/config.toml` 曾残留旧 `experimental_bearer_token` 明文配置，与文档期望的 secret-safe 状态不一致。
@@ -679,8 +709,8 @@ logs=/storage/Users/currentUser/Claude/codex-ohos/logs/smoke/20260523-1905-full
 ## 2026-05-23 Agent 能力分析结论
 
 - 当前 Codex 源码已具备多层 Agent 能力：单 Agent CLI/TUI、工具运行时、MCP client/server、plugin/skill discovery、多 Agent spawn/send/wait/close/resume、Agent graph store、Agent identity、app-server/remote-control、exec-server、cloud task 和 Code Mode。
-- HarmonyOS 当前已经验证单 Agent CLI/TUI 主链路，并完成多 Agent 最小 `spawn_agent -> wait_agent -> close_agent`、`SendInput`、MCP add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP、`mcp-server tools/call codex`、plugin marketplace/install/skill 暴露、app-server/exec-server ws 握手、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 的专项 smoke。
-- 仍未完成的是并发多 Agent、`resume_agent`、graph store 跨进程持久化、MCP OAuth/resource/approval、connector auth/tool invocation、remote-control standalone layout、cloud task 和 Agent identity。
+- HarmonyOS 当前已经验证单 Agent CLI/TUI 主链路，并完成多 Agent v1 最小链路、并发子 Agent、`SendInput`、`resume_agent` 探针、SQLite/rollout graph 证据、MCP add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP、本地 stdio MCP tool/resource、`mcp-server tools/call codex`、plugin marketplace/install/skill 暴露、repo-local skill 模型侧调用、app-server/exec-server ws JSON-RPC、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 的专项 smoke。
+- 仍未完成的是跨进程重开父会话后完整恢复多 Agent open/closed 子树、MCP OAuth/approval、connector auth/tool invocation、remote-control standalone layout、cloud task 和 Agent identity。
 - Code Mode 是明确功能缺失：OHOS build 使用 stub，返回 `Code Mode is unavailable in this HarmonyOS build because rusty_v8 has no aarch64-unknown-linux-ohos prebuilt archive.`。
 - Linux sandbox 已按 OHOS 适配主动降级，避免误探测 bubblewrap；因此 HarmonyOS 上不能宣称具备普通 Linux 的 bwrap/seccomp sandbox 安全边界。显式 `codex sandbox linux` 子命令仍会 panic 为 `codex-linux-sandbox executable not found`，后续应改成 OHOS unsupported 提示。
 - 详细分析见 `docs/codex-agent-capability-analysis.md`。
