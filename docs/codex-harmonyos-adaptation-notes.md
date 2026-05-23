@@ -519,6 +519,112 @@ exec "$HOME/Claude/codex-openai/codex-rs/target/release/codex" "$@"
   - `codex --help` 可正常输出帮助内容
 - 经验：安装 wrapper 不应复制二进制，避免后续签名/构建更新后 PATH 入口指向旧文件；通过 exec release binary 可以复用同一签名产物。
 
+## 2026-05-23 Agent 能力专项 smoke
+
+本轮没有修改 Rust 代码，优先按“Agent 能力优先，安全/沙箱后置”的原则做远端验收。测试均通过 `/usr/bin/zsh -lc` 或隔离 `CODEX_HOME` 执行，API key 只从本地环境经 stdin 临时注入，不写入远端配置。
+
+### Code Mode
+
+- `codex features list` 显示 `code_mode` 和 `code_mode_only` 仍是 under development false。
+- 只启用 `--enable code_mode` 时，模型可能退回普通 shell 工具并成功运行 Node/JS 命令；这不能证明 Code Mode 可用。
+- 使用 `--enable code_mode --enable code_mode_only` 才会走真实 Code Mode 路径。HarmonyOS 当前返回：
+
+```text
+Code Mode is unavailable in this HarmonyOS build because rusty_v8 has no aarch64-unknown-linux-ohos prebuilt archive.
+```
+
+结论：OHOS Code Mode stub 行为符合预期，但高级 JS runtime、nested tool orchestration 和相关工具组合不可用。
+
+### Linux sandbox
+
+- 主 CLI/TUI 不再误探测 bubblewrap，也不再默认进入 LinuxSeccomp。
+- 显式运行 `codex sandbox linux /data/service/hnp/bin/true` 仍会 panic：
+
+```text
+codex-linux-sandbox executable not found
+```
+
+结论：功能主链路已主动降级，但 sandbox 子命令仍需后续改成 OHOS 上的 graceful unsupported，而不是 panic。
+
+### 多 Agent
+
+最小端到端 smoke 通过：
+
+- 主 Agent spawn 一个子 Agent。
+- 子 Agent 返回 `FINAL_FROM_CHILD`。
+- 主 Agent `wait_agent` 收到 completed。
+- 主 Agent `close_agent` 成功关闭子 Agent。
+- 最终输出为 `MULTI_AGENT_OK FINAL_FROM_CHILD`。
+
+证据 rollout：
+
+```text
+/storage/Users/currentUser/.codex/sessions/2026/05/23/rollout-2026-05-23T17-45-52-019e543a-119f-7e71-a661-b97a472c6e75.jsonl
+```
+
+注意：第一次 spawn 使用了不合法的 `fork_context + agent_type` 组合，Codex 返回明确约束错误；模型随后以最小参数重试成功。这说明参数校验和错误恢复路径也有基本证据。
+
+未覆盖：TUI `/agent` picker、并发多个子 Agent、`send_input`、`resume_agent`、重启后 graph store open/closed 状态。
+
+### MCP client/server 和真实 DeepWiki MCP
+
+本地 MCP 管理通过：
+
+- 隔离 `CODEX_HOME` 下 `codex mcp add/list/remove` 可管理 stdio server。
+- 真实 `~/.codex/config.toml` 已保持不配置 MCP server，避免临时测试污染日常会话。
+
+Codex MCP server 通过：
+
+- `codex mcp-server` 使用 newline JSON-RPC 可完成 `initialize` 和 `tools/list`。
+- 暴露工具包括 `codex` 和 `codex-reply`。
+- Content-Length framing 当前未跑通，后续 harness 应按当前实现使用 newline JSON-RPC。
+
+真实 DeepWiki streamable HTTP MCP 通过：
+
+- `https://mcp.deepwiki.com/` 是 HTML landing page，不是 MCP endpoint。
+- DeepWiki 文档/页面提示的正确 endpoint 是 `https://mcp.deepwiki.com/mcp`。
+- 隔离 `CODEX_HOME` 配置该 endpoint 后，Agent 实际调用 `deepwiki/ask_question` 并成功返回 `openai/codex` 摘要。
+- `https://developers.openai.com/mcp` 直接访问返回 403，本轮不作为可用 MCP endpoint。
+
+未覆盖：MCP OAuth、resource/list 真实资源读取、streamable HTTP 认证、MCP tool approval 交互和错误 UI。
+
+### Plugin / skill / connector
+
+- `codex plugin list` 可运行并会初始化 marketplace/cache。
+- `codex plugin marketplace list` 能看到 `openai-curated`。
+- 隔离/临时环境中安装 `github@openai-curated` 成功。
+- `codex debug prompt-input` 能看到 GitHub plugin skills 暴露给 Agent。
+
+注意：本轮安装 GitHub plugin 时，远端真实 `~/.codex/plugins/cache/openai-curated/github/...` 已出现 installed/enabled 状态；这属于插件缓存/安装副作用，应在后续长期使用前确认是否保留。connector auth、GitHub tool invocation、request-plugin-install 和 external agent config migration 尚未验收。
+
+### App server / remote-control / exec-server
+
+- `codex app-server daemon version` 不能连接默认 control socket。
+- `codex app-server --listen unix://...` 报 `Operation not permitted`，说明 OHOS 当前 Unix socket 路径有权限或平台限制。
+- `codex app-server --listen ws://127.0.0.1:45678` 可启动并运行到 timeout。
+- `codex remote-control start --json` 失败，原因是 managed standalone Codex install 不存在于 `~/.codex/packages/standalone/current/codex`。
+- `codex remote-control stop --json` 返回 `notRunning`。
+- `codex exec-server --listen stdio://` 可干净退出。
+- `codex exec-server --listen ws://127.0.0.1:45679` 可启动并打印 `ws://127.0.0.1:45679`，随后运行到 timeout。
+
+结论：服务型能力不是全不可用，但默认 Unix socket/standalone layout 路径不适合直接宣称可用。下一步应优先验证 ws 模式和 standalone installer 布局。
+
+### Cloud task / Agent identity / GUI
+
+- `codex login status` 为 `Not logged in`。
+- `codex cloud list/status` 要求先 `codex login`。
+- `codex exec-server --remote ... --use-agent-identity-auth` 要求 `CODEX_ACCESS_TOKEN`。
+- 远端 SSH 环境未找到 `open`、`xdg-open`、`google-chrome`、`chromium`、`firefox`。
+- `debug prompt-input` 未显示 Browser Use / Computer Use 工具暴露在远端会话。
+
+结论：cloud task 和 Agent identity 目前受 ChatGPT 登录或 token 阻塞；浏览器/桌面/GUI 插件不能在 SSH 验证环境中默认视为可用。
+
+### Harness 和配置卫生
+
+- 当前 TUI 两轮 e2e 仍是内存型 PTY harness 的经验结果，尚未固化进仓库脚本。
+- 后续脚本必须满足：key 不落盘、不出现在进程参数、输出前脱敏、不使用 `expect log_file` 记录 `send` 内容。
+- 本轮真实 MCP 测试曾临时把 `deepwiki` 和 `openai_docs` 写入真实 `~/.codex/config.toml`；已执行 `codex mcp remove deepwiki` 和 `codex mcp remove openai_docs` 清理。当前 `codex mcp list` 为 `No MCP servers configured yet`。
+
 ## 2026-05-23 最终配置审计结果
 
 - 最终审计发现远端 `~/.codex/config.toml` 曾残留旧 `experimental_bearer_token` 明文配置，与文档期望的 secret-safe 状态不一致。
@@ -529,7 +635,8 @@ exec "$HOME/Claude/codex-openai/codex-rs/target/release/codex" "$@"
 ## 2026-05-23 Agent 能力分析结论
 
 - 当前 Codex 源码已具备多层 Agent 能力：单 Agent CLI/TUI、工具运行时、MCP client/server、plugin/skill discovery、多 Agent spawn/send/wait/close/resume、Agent graph store、Agent identity、app-server/remote-control、exec-server、cloud task 和 Code Mode。
-- HarmonyOS 当前已经验证单 Agent CLI/TUI 主链路，但未对多 Agent、MCP、plugin/skill、app-server、exec-server、cloud task 和 Agent identity 做端到端验收。
+- HarmonyOS 当前已经验证单 Agent CLI/TUI 主链路，并完成多 Agent 最小 `spawn_agent -> wait_agent -> close_agent`、MCP add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP、plugin marketplace/install/skill 暴露、app-server/exec-server 基础启动路径的专项 smoke。
+- 仍未完成的是 TUI `/agent` picker、并发多 Agent、`send_input`/`resume_agent`、graph store 跨进程持久化、MCP OAuth/resource/approval、connector auth/tool invocation、remote-control standalone layout、cloud task 和 Agent identity。
 - Code Mode 是明确功能缺失：OHOS build 使用 stub，返回 `Code Mode is unavailable in this HarmonyOS build because rusty_v8 has no aarch64-unknown-linux-ohos prebuilt archive.`。
-- Linux sandbox 已按 OHOS 适配主动降级，避免误探测 bubblewrap；因此 HarmonyOS 上不能宣称具备普通 Linux 的 bwrap/seccomp sandbox 安全边界。
+- Linux sandbox 已按 OHOS 适配主动降级，避免误探测 bubblewrap；因此 HarmonyOS 上不能宣称具备普通 Linux 的 bwrap/seccomp sandbox 安全边界。显式 `codex sandbox linux` 子命令仍会 panic 为 `codex-linux-sandbox executable not found`，后续应改成 OHOS unsupported 提示。
 - 详细分析见 `docs/codex-agent-capability-analysis.md`。

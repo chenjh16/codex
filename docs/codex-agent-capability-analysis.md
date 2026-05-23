@@ -1,14 +1,14 @@
 # Codex Agent 能力分析与 HarmonyOS 缺口
 
-更新时间：2026-05-23 04:55 CST
+更新时间：2026-05-23 18:05 CST
 
 ## 摘要
 
 当前 HarmonyOS PC 上的 Codex CLI 主链路已经可用：release build 成功、最终二进制已签名、`codex --version` / `codex --help` / bundled models 通过，非交互 `codex exec` 和 TUI 两轮真实模型交互通过，并已安装到 `/storage/Users/currentUser/.local/bin/codex`。
 
-从源码结构看，当前 Codex 已经不只是单 Agent CLI。它包含单会话执行、工具运行时、MCP client/server、插件和 skill 发现、多 Agent 协作、Agent graph 持久化、Agent identity、app-server/remote-control、cloud task 和 Code Mode 等多层能力。HarmonyOS 适配目前验证到 CLI 和 TUI 的核心使用闭环，但 Agent 相关能力仍有明显缺口：Code Mode 在 OHOS 上被 stub，Linux sandbox 被有意禁用，多 Agent、MCP、plugin、app-server、exec-server、cloud task 和 Agent identity 都尚未在 HarmonyOS 端做端到端验收。
+从源码结构看，当前 Codex 已经不只是单 Agent CLI。它包含单会话执行、工具运行时、MCP client/server、插件和 skill 发现、多 Agent 协作、Agent graph 持久化、Agent identity、app-server/remote-control、cloud task 和 Code Mode 等多层能力。HarmonyOS 适配目前已经验证到 CLI 和 TUI 的核心使用闭环，并补做了一轮 Agent 能力专项 smoke：多 Agent 最小链路、MCP client/server、真实 DeepWiki streamable HTTP MCP、plugin/skill 基础发现、app-server/exec-server 部分启动路径都有实测结果。但 Code Mode 在 OHOS 上仍为 stub，Linux sandbox 被有意禁用，TUI 多 Agent、MCP OAuth/resource/approval、connector auth、cloud task、Agent identity 和 GUI/浏览器插件仍未完成验收。
 
-结论：当前安装版 Codex 可作为 HarmonyOS PC 上的交互式和非交互式主力 CLI 使用；若要称为完整 Agent runtime，还需要补 Agent 专项验证矩阵，并决定 Code Mode 与 sandbox 的长期策略。
+结论：当前安装版 Codex 可作为 HarmonyOS PC 上的交互式和非交互式主力 CLI 使用；多 Agent 和 MCP 的核心非 GUI 路径已有可用证据。若要称为完整 Agent runtime，还需要补齐服务型能力、GUI 能力、MCP 高级认证/资源、Agent graph 持久化，以及 Code Mode 与 sandbox 的长期策略。
 
 ## 当前已验证状态
 
@@ -19,6 +19,15 @@
 - 非交互：`codex exec` 的基础 API smoke 和工具调用 e2e 已通过。
 - TUI：`TERM=xterm-256color`、`screen-256color`、`vt100` 均完成两轮 prompt、收到模型响应、`/quit` 正常退出，且 warning/panic/error 计数为 0。
 - 安全配置：最终审计已将远端 `~/.codex/config.toml` 修正为 `env_key = "SUBAPI_ELIAS_API_KEY"`，不保存 key 明文；旧 `experimental_bearer_token` 残留已删除，复扫为 clean。因明文曾短暂存在于远端配置和审计输出中，建议轮换该测试 key。
+- Feature flags：`codex features list` 显示 `multi_agent`、`plugins`、`skill_mcp_dependency_install` 为 stable true；`code_mode` 和 `code_mode_only` 为 under development false。
+- Code Mode：`--enable code_mode --enable code_mode_only` 返回 OHOS rusty_v8 prebuilt 缺失提示，确认当前为 stub；仅启用 `code_mode` 时模型可退回普通 shell 工具，不能作为 Code Mode 可用证据。
+- Linux sandbox：显式 `codex sandbox linux /data/service/hnp/bin/true` 仍 panic 为 `codex-linux-sandbox executable not found`。主 CLI/TUI 已正确降级，但该子命令需要后续修成 graceful unsupported。
+- 多 Agent：最小 `spawn_agent -> wait_agent -> close_agent` 端到端通过，最终输出 `MULTI_AGENT_OK FINAL_FROM_CHILD`；rollout 证据为远端 `~/.codex/sessions/2026/05/23/rollout-2026-05-23T17-45-52-019e543a-119f-7e71-a661-b97a472c6e75.jsonl`。
+- MCP：`codex mcp add/list/remove`、`codex mcp-server` newline JSON-RPC `initialize` / `tools/list` 通过；真实 DeepWiki MCP endpoint `https://mcp.deepwiki.com/mcp` 通过，Agent 实际调用 `deepwiki/ask_question` 返回 `openai/codex` 摘要。`https://developers.openai.com/mcp` 直接访问返回 403，不作为可用 endpoint。
+- Plugin/skill：plugin list、marketplace list、GitHub plugin 安装和 prompt-input skills 暴露通过；connector auth 和真实 connector tool invocation 未验收。
+- 服务型能力：app-server Unix socket 报 `Operation not permitted`，ws listen 可启动；exec-server stdio/ws 基础可启动；remote-control start 缺 standalone installer layout；cloud/Agent identity 受登录或 token 阻塞。
+- GUI：当前 SSH 环境未发现可用浏览器命令，Browser Use / Computer Use 未在远端 prompt-input 中暴露。
+- 配置卫生：真实 DeepWiki/OpenAI MCP 临时配置已从远端真实 `~/.codex/config.toml` 清理，当前真实 `codex mcp list` 为无 MCP server。
 
 ## 能力分层
 
@@ -71,13 +80,13 @@ Codex CLI 的入口在 `codex-rs/cli/src/main.rs`。当前命令面包括：
 - `codex-rs/app-server-protocol/src/protocol/event_mapping.rs` 和 `thread_history.rs` 将 spawn/send/wait/close/resume 事件映射为 UI thread item。
 - `codex-rs/analytics/src/reducer.rs` 对 `spawn_agent`、`send_input`、`resume_agent`、`wait_agent`、`close_agent` 做事件归因。
 
-能力判断：上游已有完整的多 Agent 控制面和 UI 表示层。HarmonyOS 当前只验证了单主 Agent 的 TUI/exec 闭环，没有跑多 Agent spawn/wait/close 的端到端测试，因此这层属于“源码具备，目标机未验收”。
+能力判断：上游已有完整的多 Agent 控制面和 UI 表示层。HarmonyOS 当前已通过最小 `spawn_agent -> wait_agent -> close_agent` 非交互端到端 smoke，说明子 Agent 创建、状态等待和关闭在目标机上可运行。尚未覆盖的是并发多个子 Agent、`send_input`、`resume_agent`、TUI `/agent` picker、跨进程恢复后的 graph store open/closed 状态。
 
 ### 4. Agent graph 和持久化
 
 `codex-rs/agent-graph-store/src/types.rs` 定义 `ThreadSpawnEdgeStatus::{Open, Closed}`，`store.rs` 负责 parent/child thread spawn edge 的持久化。`AgentControl` 也会把 subagent 的 session source、depth、agent path、role、nickname 等信息挂到 thread 上。
 
-能力判断：Codex 已具备父子 Agent 图谱的基本数据模型，支持恢复、关闭和 UI 呈现。但 HarmonyOS 当前没有验证跨进程恢复后 graph 是否正确、子 Agent 是否能 resume、closed 状态是否持久化。
+能力判断：Codex 已具备父子 Agent 图谱的基本数据模型，支持恢复、关闭和 UI 呈现。HarmonyOS 已验证一次 close 操作能完成，但还没有验证跨进程恢复后 graph 是否正确、子 Agent 是否能 resume、closed 状态是否持久化。
 
 ### 5. MCP client/server
 
@@ -88,13 +97,13 @@ Codex 同时具备 MCP client 和 MCP server 能力：
 - `codex-rs/codex-mcp`：Codex app 相关 MCP 连接管理。
 - `codex-rs/mcp-server`：把 Codex 作为 MCP server 暴露，工具包括 `codex` 和 `codex-reply`。`codex_tool_config.rs` 说明 server 接收 prompt、model、profile、cwd、approval、sandbox、config、base/developer instructions 等参数；`message_processor.rs` 使用 `ThreadManager` 创建 MCP 来源的 Codex session。
 
-能力判断：MCP 是 Codex Agent 能力的关键扩展面。HarmonyOS 上尚未 smoke `codex mcp`、`codex mcp-server`、外部 stdio MCP server、streamable HTTP MCP、OAuth 或资源读取，因此属于高优先级未验收项。
+能力判断：MCP 是 Codex Agent 能力的关键扩展面。HarmonyOS 当前已通过 `codex mcp add/list/remove`、Codex MCP server newline JSON-RPC `initialize` / `tools/list`，以及真实 DeepWiki streamable HTTP MCP 的 `deepwiki/ask_question` 调用。仍未覆盖的是 Content-Length framing、OAuth、resource 读取、streamable HTTP 认证、MCP tool approval 和错误 UI。
 
 ### 6. Plugin / skill / connector 发现
 
 CLI 有 `plugin` 子命令；tools crate 中也有 discoverable tool、request-plugin-install、connector install completion 等模型可见机制。TUI 里还有 external agent config migration 相关模块，说明 Codex 正在把外部 Agent/插件配置纳入统一发现和迁移体验。
 
-能力判断：上游具备插件和 skill 发现能力，但 HarmonyOS 上没有验证 plugin marketplace、插件安装、skill 加载、connector install request、外部 Agent 配置迁移 UI。考虑到 HarmonyOS 文件系统、SSH 环境和远端网络代理都特殊，这部分不能默认等同于普通 macOS/Linux 可用。
+能力判断：上游具备插件和 skill 发现能力。HarmonyOS 当前已验证 plugin list、marketplace list、GitHub plugin 安装和 prompt-input 中暴露 GitHub plugin skills。考虑到 HarmonyOS 文件系统、SSH 环境和远端网络代理都特殊，connector auth、真实 connector tool invocation、request-plugin-install 和外部 Agent 配置迁移 UI 仍不能默认等同于普通 macOS/Linux 可用。
 
 ### 7. Agent identity、cloud task、app server 和 remote control
 
@@ -107,7 +116,7 @@ CLI 有 `plugin` 子命令；tools crate 中也有 discoverable tool、request-p
 
 CLI 还包含 `cloud`、`app-server`、`remote-control`、`exec-server` 等实验性/服务型入口。
 
-能力判断：这些能力更接近“Codex 作为分布式 Agent runtime”的形态，但当前 HarmonyOS 验证只覆盖本机 CLI/TUI。Agent identity 依赖 ChatGPT 认证和后端接口，exec-server/app-server 依赖 socket、daemon、远程控制和环境注册；这些都还没有在 HarmonyOS 上验收。
+能力判断：这些能力更接近“Codex 作为分布式 Agent runtime”的形态。HarmonyOS 当前验证结果是：app-server Unix socket 监听报 `Operation not permitted`，ws listen 可启动；exec-server stdio/ws 基础路径可启动；remote-control start 需要 standalone installer layout；cloud task 和 Agent identity 受 ChatGPT login 或 `CODEX_ACCESS_TOKEN` 阻塞。也就是说，服务型入口不是全不可用，但距离可声明完整可用还差认证、daemon/socket、standalone layout 和远程注册链路。
 
 ### 8. Code Mode
 
@@ -129,17 +138,17 @@ Code Mode 在非 OHOS 构建中承载 JS orchestration、nested tool call、`exe
 2. Linux sandbox 不可用且已主动降级。
    影响：OHOS 不再误探测 bubblewrap，也不再默认进入 LinuxSeccomp。安全边界依赖 Codex approval、工作目录和用户操作约束，不能等同普通 Linux sandbox。
 
-3. 多 Agent 端到端未验收。
-   影响：源码有 `spawn_agent` / `wait_agent` / `close_agent`，但未验证 HarmonyOS 上子线程创建、并发执行、状态订阅、TUI picker、resume/close graph 持久化。
+3. 多 Agent 仅完成最小非交互链路。
+   影响：`spawn_agent` / `wait_agent` / `close_agent` 已通过，但尚未验证 HarmonyOS 上并发执行、`send_input`、状态订阅细节、TUI picker、resume/close graph 持久化。
 
-4. MCP client/server 未验收。
-   影响：无法确认 stdio MCP server、Codex MCP server、OAuth、resource、streamable HTTP、MCP tool approval 在 OHOS 上可用。
+4. MCP client/server 已完成基础 smoke，但高级能力未验收。
+   影响：stdio add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP 已通过；OAuth、resource、Content-Length framing、streamable HTTP auth、MCP tool approval 仍未确认。
 
-5. Plugin / skill / connector 流程未验收。
-   影响：插件安装、marketplace、skill 加载、外部 Agent config migration、request-plugin-install 可能受 PATH、网络、文件权限和代理影响。
+5. Plugin / skill 基础可用，connector 流程未验收。
+   影响：插件 marketplace、安装和 skill 暴露已通过；外部 connector auth/tool invocation、Agent config migration、request-plugin-install 可能受 PATH、网络、文件权限和代理影响。
 
-6. App server / remote-control / exec-server 未验收。
-   影响：Unix socket、daemon 生命周期、远程控制、exec-server 注册和 ChatGPT auth 约束都可能在 OHOS 上暴露新问题。
+6. App server / remote-control / exec-server 仅部分可用。
+   影响：ws listen 和 exec-server 基础启动已有证据；Unix socket、daemon 生命周期、remote-control standalone layout、exec-server 注册和 ChatGPT auth 约束都可能在 OHOS 上暴露新问题。
 
 7. Cloud task 与 Agent identity 未验收。
    影响：`AgentAssertion`、task registration、JWKS、ChatGPT auth、cloud task apply 等服务型 Agent 能力尚不能宣称可用。
@@ -174,12 +183,15 @@ Code Mode 在非 OHOS 构建中承载 JS orchestration、nested tool call、`exe
   - 验证 TUI `/agent` picker 和快捷切换。
   - 验证重启后 graph store 中 open/closed 状态仍正确。
 - MCP：
-  - `codex mcp-server` 初始化、tools/list、tools/call `codex`。
+  - `codex mcp-server` tools/call `codex`。
   - 本地 stdio MCP server 作为外部工具被 Codex 调用。
+  - DeepWiki 之外再覆盖一个 authenticated streamable HTTP MCP。
+  - MCP OAuth、resource/list 和 resource/read。
   - MCP tool approval 和错误展示。
 - Plugin / skill：
-  - `codex plugin list`、marketplace list、安装一个小插件、删除。
+  - 验证 connector auth 和真实 connector tool invocation。
   - 验证 skill 加载、工具搜索、request-plugin-install。
+  - 验证 external agent config migration UI。
 
 ### P1/P2：Code Mode 决策
 
