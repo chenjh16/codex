@@ -4,7 +4,7 @@
 
 目标是在 HarmonyOS 6.0 PC 上从 [openai/codex](https://github.com/openai/codex) 源码构建并运行 Codex CLI，主交付物是远端可直接执行的原生 `codex` 命令。远端 HarmonyOS PC 的约定入口是 `ssh -p 22222 chenjh@localhost`；本次执行期间 `22222` 连接被本机端口转发重置，临时使用已验证可用的 `ssh -p 22223 chenjh@localhost`，待 `22222` 转发恢复后可切回。基于调研结果，走 Rust 原生二进制路线，不把 npm wrapper 作为主路径，因为 DevNode 在 SSH 下需要 `--jitless`，且上游 `codex-cli/bin/codex.js` 目前不识别 `process.platform = "openharmony"`。
 
-2026-05-23 更新：当前 `22222` 已恢复可用；Codex release build、签名、非交互 smoke、工具调用 e2e、TUI 两轮 e2e 和多 TERM 覆盖均已完成。用户级安装入口已创建为 `/storage/Users/currentUser/.local/bin/codex`，该 wrapper 会加载 `~/Claude/codex-ohos/env.sh` 并执行已签名的 release binary。后续 Agent 专项 smoke 已覆盖 Code Mode 降级、多 Agent、MCP client/server、真实 DeepWiki streamable HTTP MCP、plugin/skill、app-server/exec-server、cloud/Agent identity 和 GUI 环境边界。
+2026-05-23 更新：当前 `22222` 已恢复可用；Codex release build、签名、非交互 smoke、工具调用 e2e、TUI 两轮 e2e 和多 TERM 覆盖均已完成。用户级安装入口已创建为 `/storage/Users/currentUser/.local/bin/codex`，该 wrapper 会加载 `~/Claude/codex-ohos/env.sh` 并执行已签名的 release binary。后续 Agent 专项 smoke 已覆盖 Code Mode 降级、多 Agent、MCP client/server、真实 DeepWiki streamable HTTP MCP、plugin/skill、app-server/exec-server、cloud/Agent identity 和 GUI 环境边界。无编译验收脚本已固化到 `~/Claude/codex-ohos/scripts`，总入口 `run-no-compile-smoke.zsh` 最新完整运行 `20260523-1905-full` 通过。
 
 ## Key Changes
 
@@ -112,6 +112,14 @@ stream_idle_timeout_ms = 120000
 - 2026-05-23 17:55 CST：MCP 基础能力通过：隔离 `CODEX_HOME` 下 `codex mcp add/list/remove` 可管理 stdio server；`codex mcp-server` 用 newline JSON-RPC 可完成 `initialize` 和 `tools/list`，工具包括 `codex`、`codex-reply`。Content-Length framing 未跑通，后续文档和 harness 应按当前实现使用 newline JSON-RPC。
 - 2026-05-23 18:00 CST：真实 DeepWiki MCP 通过。`https://mcp.deepwiki.com/` 是 HTML landing page，正确 streamable HTTP endpoint 为 `https://mcp.deepwiki.com/mcp`；隔离 `CODEX_HOME` 配置后，Agent 实际调用 `deepwiki/ask_question` 并成功返回 `openai/codex` 摘要。`https://developers.openai.com/mcp` 直接访问返回 403，不作为可用 endpoint。临时 MCP server 已从远端真实 `~/.codex/config.toml` 移除，当前真实配置中无 MCP server。
 - 2026-05-23 18:03 CST：Plugin/skill、app-server/exec-server、cloud/identity 和 GUI 边界已完成 smoke。GitHub plugin 可安装并在 prompt-input 中暴露 skills，但 connector auth/tool invocation 未验收；app-server Unix socket 报 `Operation not permitted`，ws listen 可启动；exec-server stdio/ws 基础可启动；remote-control start 缺 standalone installer layout；cloud/Agent identity 受 ChatGPT login 或 `CODEX_ACCESS_TOKEN` 阻塞；SSH 环境下没有可用浏览器/桌面自动化证据。
+- 2026-05-23 18:55 CST：无编译验收脚本已固化并完整通过。运行目录为 `~/Claude/codex-ohos/scripts`，本地镜像为 `/Users/substance/vibe/codex/harmonyos/codex-ohos/scripts`，远端源码仓库镜像为 `~/Claude/codex-openai/scripts/harmonyos`。最新总入口运行：
+
+```sh
+CODEX_OHOS_SMOKE_RUN_ID=20260523-1905-full \
+  ~/Claude/codex-ohos/scripts/run-no-compile-smoke.zsh
+```
+
+结果为 `no-compile-smoke failures=0`，日志在 `~/Claude/codex-ohos/logs/smoke/20260523-1905-full`。相比 18:00 的手工 smoke，新脚本还补齐了多 Agent `SendInput`、`mcp-server tools/call codex`、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 和 app-server/exec-server WebSocket `101 Switching Protocols` 握手。脚本经验：安装 wrapper 会覆盖 `CODEX_HOME`，因此需要隔离 home 的测试必须直接调用 `~/Claude/codex-openai/codex-rs/target/release/codex`。
 
 ## Next Steps
 
@@ -119,7 +127,7 @@ stream_idle_timeout_ms = 120000
 2. TUI 两轮成功模型响应已通过，`TERM=xterm-256color`、`screen-256color` 和 `vt100` 均已覆盖完整两轮 TUI e2e；当前交付状态满足本阶段 TUI 端到端验收。
 3. 用户目录安装已完成，推荐日常入口是 `/storage/Users/currentUser/.local/bin/codex`。保留 `~/Claude/codex-ohos/bin/codex` 作为工程辅助 wrapper。
 4. 后续如需把 TUI e2e 固化为脚本，应复用内存型 PTY harness 思路，避免 `expect log_file` 记录 `send` 的 key。当前会话中曾因错误 harness 暴露测试 key，建议轮换后再长期使用。
-5. Agent 能力专项第一轮 smoke 已完成：多 Agent 最小链路、MCP add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP、plugin marketplace/install、app-server/exec-server 基础启动均有结果。下一阶段重点转为补齐未覆盖深水区：TUI `/agent` picker、resume/close graph 持久化、MCP OAuth/resource/approval、connector auth、remote-control standalone layout、cloud task 和 Agent identity。
+5. Agent 能力专项第一轮 smoke 已完成并脚本化：多 Agent 最小链路和 `SendInput`、MCP add/list/remove、Codex MCP server newline JSON-RPC、`tools/call codex`、真实 DeepWiki streamable HTTP MCP、plugin marketplace/install/visibility、app-server/exec-server ws 握手、TUI `/agent` picker、`resume --last --include-non-interactive` 均有结果。下一阶段重点转为补齐未覆盖深水区：多 Agent `resume_agent`/graph 持久化、MCP OAuth/resource/approval、connector auth、remote-control standalone layout、cloud task 和 Agent identity。
 6. Code Mode 当前在 OHOS 上不可用；若后续要补齐完整 Agent runtime，需要单独决策 rusty_v8 源码构建、替代 JS runtime，或显式保留 stub 并降低功能暴露。`codex sandbox linux` 显式子命令也需要从 panic 改成 OHOS unsupported 提示。
 
 ## TUI Adaptation Plan
