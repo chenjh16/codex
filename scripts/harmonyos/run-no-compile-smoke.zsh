@@ -13,6 +13,9 @@ SCRIPTS=(
   05-app-exec-server-smoke.zsh
   06-cloud-auth-gui-probe.zsh
   07-tui-resume-smoke.zsh
+  08-mcp-approval-smoke.zsh
+  09-connector-remote-identity-smoke.zsh
+  10-multi-agent-cross-process-smoke.zsh
 )
 
 failures=0

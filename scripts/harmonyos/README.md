@@ -23,6 +23,23 @@ need an isolated `CODEX_HOME` call the signed release binary directly.
 Latest full pass:
 
 ```text
+CODEX_OHOS_SMOKE_RUN_ID=20260524-agent-full
+no-compile-smoke failures=0
+```
+
+This pass includes the expanded deep Agent checks:
+
+- `08-mcp-approval-smoke.zsh`: app-server `mcpServer/elicitation/request`
+  for prompt-mode MCP tool approval.
+- `09-connector-remote-identity-smoke.zsh`: plugin/app/auth inventory,
+  MCP OAuth probe, remote-control standalone layout probe, and
+  `CODEX_ACCESS_TOKEN`/Agent identity probe.
+- `10-multi-agent-cross-process-smoke.zsh`: cross-process parent resume and
+  `resume_agent` for a closed child.
+
+Previous full pass:
+
+```text
 CODEX_OHOS_SMOKE_RUN_ID=20260523-2210-agent-full
 no-compile-smoke failures=0
 ```

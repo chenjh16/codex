@@ -258,6 +258,32 @@ libc::ioctl(fd, libc::TIOCGWINSZ as _, data)
   - `codex-rs/code-mode/src/runtime/ohos_stub.rs`
   - `codex-rs/code-mode/src/service_ohos_stub.rs`
 
+## 2026-05-24 Agent 优先验收补充
+
+本轮没有重新编译，重点是把 Agent 能力优先的深水区继续固化为可复跑 smoke。新增脚本已同步到远端运行目录 `~/Claude/codex-ohos/scripts` 和远端源码仓库 `scripts/harmonyos`：
+
+- `08-mcp-approval-smoke.zsh`
+- `09-connector-remote-identity-smoke.zsh`
+- `10-multi-agent-cross-process-smoke.zsh`
+
+最新完整回归：
+
+```text
+CODEX_OHOS_SMOKE_RUN_ID=20260524-agent-full
+no-compile-smoke failures=0
+```
+
+关键结论：
+
+- MCP approval prompt-mode 已验收到 app-server `mcpServer/elicitation/request`。本地 `approval_smoke` stdio MCP tool 进入 `waitingOnApproval`，请求包含 `_meta.codex_approval_kind = "mcp_tool_call"`。
+- app-server plugin/app/auth inventory 在未登录 ChatGPT 时返回明确边界：remote plugin catalog/detail/skill detail 需要 `chatgpt authentication required`，`app/list` 为空，account/auth status 明确。
+- MCP OAuth probe 已走到 `mcpServer/oauth/login` 并返回显式结果。
+- remote-control standalone layout 可用隔离 `CODEX_HOME/packages/standalone/current/codex` symlink 越过 managed-install blocker；当前 daemon start 卡在 pid start time 或 OHOS socket/进程元数据行为，不再是安装布局问题。
+- Agent identity probe 已覆盖 `CODEX_ACCESS_TOKEN` 缺失/存在性和 `exec-server --remote ... --use-agent-identity-auth` 的显式错误路径，日志未暴露 bearer secret。
+- 跨进程多 Agent 恢复通过：seed 进程创建并关闭 child 后，新进程 `codex exec resume <parent>` 调用 `resume_agent <child>`，返回 `CROSS_PROCESS_RESUME_OK CROSS_PROCESS_CHILD_RESUMED`。
+
+下一步真正需要外部状态的是正向认证链路：ChatGPT login、GitHub connector tool invocation、cloud task、真实 Agent identity JWT、remote-control connected 状态。
+
 验证：
 
 ```sh
@@ -709,8 +735,8 @@ logs=/storage/Users/currentUser/Claude/codex-ohos/logs/smoke/20260523-2210-agent
 ## 2026-05-23 Agent 能力分析结论
 
 - 当前 Codex 源码已具备多层 Agent 能力：单 Agent CLI/TUI、工具运行时、MCP client/server、plugin/skill discovery、多 Agent spawn/send/wait/close/resume、Agent graph store、Agent identity、app-server/remote-control、exec-server、cloud task 和 Code Mode。
-- HarmonyOS 当前已经验证单 Agent CLI/TUI 主链路，并完成多 Agent v1 最小链路、并发子 Agent、`SendInput`、`resume_agent` 探针、SQLite/rollout graph 证据、MCP add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP、本地 stdio MCP tool/resource、`mcp-server tools/call codex`、plugin marketplace/install/skill 暴露、repo-local skill 模型侧调用、app-server/exec-server ws JSON-RPC、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 的专项 smoke。
-- 仍未完成的是跨进程重开父会话后完整恢复多 Agent open/closed 子树、MCP OAuth/approval、connector auth/tool invocation、remote-control standalone layout、cloud task 和 Agent identity。
+- HarmonyOS 当前已经验证单 Agent CLI/TUI 主链路，并完成多 Agent v1 最小链路、并发子 Agent、`SendInput`、`resume_agent` 探针、跨进程 parent resume 后恢复 closed child、SQLite/rollout graph 证据、MCP add/list/remove、Codex MCP server newline JSON-RPC、真实 DeepWiki streamable HTTP MCP、本地 stdio MCP tool/resource、`mcp-server tools/call codex`、MCP approval elicitation、MCP OAuth probe、plugin marketplace/install/skill 暴露、repo-local skill 模型侧调用、app-server/exec-server ws JSON-RPC、remote-control standalone layout probe、Agent identity token probe、TUI `/agent` picker、隔离 `resume --last --include-non-interactive` 的专项 smoke。
+- 仍未完成的是需要真实外部认证或服务 token 的正向链路：ChatGPT login、GitHub connector auth/tool invocation、cloud task、真实 Agent identity JWT、remote-control connected 状态，以及 SSH 环境外的本机 GUI/浏览器插件能力。
 - Code Mode 是明确功能缺失：OHOS build 使用 stub，返回 `Code Mode is unavailable in this HarmonyOS build because rusty_v8 has no aarch64-unknown-linux-ohos prebuilt archive.`。
 - Linux sandbox 已按 OHOS 适配主动降级，避免误探测 bubblewrap；因此 HarmonyOS 上不能宣称具备普通 Linux 的 bwrap/seccomp sandbox 安全边界。显式 `codex sandbox linux` 子命令仍会 panic 为 `codex-linux-sandbox executable not found`，后续应改成 OHOS unsupported 提示。
 - 详细分析见 `docs/codex-agent-capability-analysis.md`。
