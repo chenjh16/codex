@@ -2,8 +2,11 @@
 use crate::bwrap::WSL1_BWRAP_WARNING;
 #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 use crate::bwrap::is_wsl1;
+#[cfg(not(all(target_os = "linux", target_env = "ohos")))]
 use crate::landlock::CODEX_LINUX_SANDBOX_ARG0;
+#[cfg(not(all(target_os = "linux", target_env = "ohos")))]
 use crate::landlock::allow_network_for_proxy;
+#[cfg(not(all(target_os = "linux", target_env = "ohos")))]
 use crate::landlock::create_linux_sandbox_command_args_for_permission_profile;
 use crate::policy_transforms::effective_permission_profile;
 use crate::policy_transforms::should_require_platform_sandbox;
@@ -106,6 +109,8 @@ pub struct SandboxTransformRequest<'a> {
 #[derive(Debug)]
 pub enum SandboxTransformError {
     MissingLinuxSandboxExecutable,
+    #[cfg(all(target_os = "linux", target_env = "ohos"))]
+    LinuxSandboxUnsupportedOnHarmony,
     #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
     Wsl1UnsupportedForBubblewrap,
     #[cfg(not(target_os = "macos"))]
@@ -118,6 +123,11 @@ impl std::fmt::Display for SandboxTransformError {
             Self::MissingLinuxSandboxExecutable => {
                 write!(f, "missing codex-linux-sandbox executable path")
             }
+            #[cfg(all(target_os = "linux", target_env = "ohos"))]
+            Self::LinuxSandboxUnsupportedOnHarmony => write!(
+                f,
+                "Linux sandbox is not supported on HarmonyOS; Codex runs with the configured approval policy and workspace constraints instead"
+            ),
             #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             Self::Wsl1UnsupportedForBubblewrap => write!(f, "{WSL1_BWRAP_WARNING}"),
             #[cfg(not(target_os = "macos"))]
@@ -181,6 +191,8 @@ impl SandboxManager {
             windows_sandbox_level,
             windows_sandbox_private_desktop,
         } = request;
+        #[cfg(all(target_os = "linux", target_env = "ohos"))]
+        let _ = sandbox_policy_cwd;
         let additional_permissions = command.additional_permissions.take();
         let effective_permission_profile =
             effective_permission_profile(permissions, additional_permissions.as_ref());
@@ -215,28 +227,40 @@ impl SandboxManager {
             #[cfg(not(target_os = "macos"))]
             SandboxType::MacosSeatbelt => return Err(SandboxTransformError::SeatbeltUnavailable),
             SandboxType::LinuxSeccomp => {
-                let exe = codex_linux_sandbox_exe
-                    .ok_or(SandboxTransformError::MissingLinuxSandboxExecutable)?;
-                let allow_proxy_network = allow_network_for_proxy(enforce_managed_network);
-                #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-                ensure_linux_bubblewrap_is_supported(
-                    &effective_file_system_policy,
-                    use_legacy_landlock,
-                    allow_proxy_network,
-                    is_wsl1(),
-                )?;
-                let mut args = create_linux_sandbox_command_args_for_permission_profile(
-                    os_argv_to_strings(argv),
-                    command.cwd.as_path(),
-                    &effective_permission_profile,
-                    sandbox_policy_cwd,
-                    use_legacy_landlock,
-                    allow_proxy_network,
-                );
-                let mut full_command = Vec::with_capacity(1 + args.len());
-                full_command.push(os_string_to_command_component(exe.as_os_str().to_owned()));
-                full_command.append(&mut args);
-                (full_command, Some(linux_sandbox_arg0_override(exe)))
+                #[cfg(all(target_os = "linux", target_env = "ohos"))]
+                {
+                    let _ = (
+                        codex_linux_sandbox_exe,
+                        use_legacy_landlock,
+                        enforce_managed_network,
+                    );
+                    return Err(SandboxTransformError::LinuxSandboxUnsupportedOnHarmony);
+                }
+                #[cfg(not(all(target_os = "linux", target_env = "ohos")))]
+                {
+                    let exe = codex_linux_sandbox_exe
+                        .ok_or(SandboxTransformError::MissingLinuxSandboxExecutable)?;
+                    let allow_proxy_network = allow_network_for_proxy(enforce_managed_network);
+                    #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
+                    ensure_linux_bubblewrap_is_supported(
+                        &effective_file_system_policy,
+                        use_legacy_landlock,
+                        allow_proxy_network,
+                        is_wsl1(),
+                    )?;
+                    let mut args = create_linux_sandbox_command_args_for_permission_profile(
+                        os_argv_to_strings(argv),
+                        command.cwd.as_path(),
+                        &effective_permission_profile,
+                        sandbox_policy_cwd,
+                        use_legacy_landlock,
+                        allow_proxy_network,
+                    );
+                    let mut full_command = Vec::with_capacity(1 + args.len());
+                    full_command.push(os_string_to_command_component(exe.as_os_str().to_owned()));
+                    full_command.append(&mut args);
+                    (full_command, Some(linux_sandbox_arg0_override(exe)))
+                }
             }
             #[cfg(target_os = "windows")]
             SandboxType::WindowsRestrictedToken => (os_argv_to_strings(argv), None),
@@ -332,6 +356,7 @@ fn os_string_to_command_component(value: OsString) -> String {
         .unwrap_or_else(|value| value.to_string_lossy().into_owned())
 }
 
+#[cfg(not(all(target_os = "linux", target_env = "ohos")))]
 fn linux_sandbox_arg0_override(exe: &Path) -> String {
     if exe.file_name().and_then(|name| name.to_str()) == Some(CODEX_LINUX_SANDBOX_ARG0) {
         os_string_to_command_component(exe.as_os_str().to_owned())
