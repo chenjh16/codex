@@ -87,8 +87,18 @@ pub fn arg0_dispatch() -> Option<Arg0PathEntryGuard> {
     }
 
     if exe_name == CODEX_LINUX_SANDBOX_ARG0 {
-        // Safety: [`run_main`] never returns.
-        codex_linux_sandbox::run_main();
+        #[cfg(all(target_os = "linux", target_env = "ohos"))]
+        {
+            eprintln!(
+                "Linux sandbox is not supported on HarmonyOS; Codex runs with the configured approval policy and workspace constraints instead"
+            );
+            std::process::exit(2);
+        }
+        #[cfg(not(all(target_os = "linux", target_env = "ohos")))]
+        {
+            // Safety: [`run_main`] never returns.
+            codex_linux_sandbox::run_main();
+        }
     } else if exe_name == APPLY_PATCH_ARG0 || exe_name == MISSPELLED_APPLY_PATCH_ARG0 {
         codex_apply_patch::main();
     }

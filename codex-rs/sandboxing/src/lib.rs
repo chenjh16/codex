@@ -40,6 +40,12 @@ impl From<SandboxTransformError> for CodexErr {
             SandboxTransformError::MissingLinuxSandboxExecutable => {
                 CodexErr::LandlockSandboxExecutableNotProvided
             }
+            #[cfg(all(target_os = "linux", target_env = "ohos"))]
+            SandboxTransformError::LinuxSandboxUnsupportedOnHarmony => {
+                CodexErr::UnsupportedOperation(
+                    "Linux sandbox is not supported on HarmonyOS; Codex runs with the configured approval policy and workspace constraints instead".to_string(),
+                )
+            }
             #[cfg(all(target_os = "linux", not(target_env = "ohos")))]
             SandboxTransformError::Wsl1UnsupportedForBubblewrap => {
                 CodexErr::UnsupportedOperation(crate::bwrap::WSL1_BWRAP_WARNING.to_string())

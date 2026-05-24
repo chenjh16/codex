@@ -79,6 +79,17 @@ pub async fn run_command_under_seatbelt(
     anyhow::bail!("Seatbelt sandbox is only available on macOS");
 }
 
+#[cfg(all(target_os = "linux", target_env = "ohos"))]
+pub async fn run_command_under_landlock(
+    _command: LandlockCommand,
+    _codex_linux_sandbox_exe: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "Linux sandbox is not supported on HarmonyOS; Codex runs with the configured approval policy and workspace constraints instead"
+    );
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "ohos")))]
 pub async fn run_command_under_landlock(
     command: LandlockCommand,
     codex_linux_sandbox_exe: Option<PathBuf>,
@@ -144,6 +155,7 @@ pub async fn run_command_under_windows(
 enum SandboxType {
     #[cfg(target_os = "macos")]
     Seatbelt,
+    #[allow(dead_code)]
     Landlock,
     Windows,
 }
